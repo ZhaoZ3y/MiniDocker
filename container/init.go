@@ -11,6 +11,7 @@ import (
 func RunContainerInitProcess(command string, args []string) error {
 	logrus.Infof("command %s", command)
 	// 设置挂载参数，禁止执行权限、设置用户ID和设备访问
+	//MS_NOEXEC在文件系统中不允许运行其他程序, MS_NOSUID在文件系统中不允许set-user-ID或set-group-ID, MS_NODEV是mount系统默认设定的参数
 	defaultMountFlags := syscall.MS_NOEXEC | syscall.MS_NOSUID | syscall.MS_NODEV
 
 	// 挂载 proc 文件系统到 /proc，proc 提供了当前系统的进程信息
