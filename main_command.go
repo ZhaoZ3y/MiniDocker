@@ -21,13 +21,14 @@ var runCommand = &cli.Command{
 	Action: func(ctx *cli.Context) error {
 		// 参数检查：至少需要一个命令参数
 		if ctx.NArg() < 1 {
-			return fmt.Errorf("缺少容器名称参数")
+			return fmt.Errorf("缺少要执行的命令参数")
 		}
-		// 获取执行的命令
-		cmd := ctx.Args().Get(0)
 		// 获取是否启用 tty 和交互模式
 		tty := ctx.Bool("ti")
-		Run(tty, cmd)
+		// 获取完整的命令数组（包括参数）
+		commandArray := ctx.Args().Slice()
+
+		Run(tty, commandArray)
 		return nil
 	},
 }
@@ -40,11 +41,8 @@ var initCommand = &cli.Command{
 	Action: func(ctx *cli.Context) error {
 		// 日志记录：进入容器初始化流程
 		log.Infof("初始化容器")
-		// 获取容器初始化命令（用户传入的要执行的命令）
-		cmd := ctx.Args().Get(0)
-		log.Infof("command %s", cmd)
 		// 调用容器的初始化进程
-		err := container.RunContainerInitProcess(cmd, nil)
+		err := container.RunContainerInitProcess()
 		return err
 	},
 }
