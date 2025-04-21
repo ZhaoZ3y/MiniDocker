@@ -8,7 +8,7 @@ import (
 )
 
 // runCommand 命令定义：用于创建并运行一个容器
-// 例如：MiniDocker run -ti /bin/bash
+// 使用示例：MiniDocker run -ti /bin/bash
 var runCommand = &cli.Command{
 	Name:  "run",
 	Usage: `创建一个容器，并启用 namespace 和 cgroups 资源限制，例如: MiniDocker run -ti [镜像名] [命令]`,
@@ -19,30 +19,32 @@ var runCommand = &cli.Command{
 		},
 	},
 	Action: func(ctx *cli.Context) error {
-		// 检查参数是否足够
+		// 参数检查：至少需要一个命令参数
 		if ctx.NArg() < 1 {
 			return fmt.Errorf("缺少容器名称参数")
 		}
-		// 获取执行的命令
+		// 获取用户要执行的命令，比如 /bin/bash
 		cmd := ctx.Args().Get(0)
-		// 获取是否启用 tty 和交互模式
+		// 检查是否启用了 -ti 选项
 		tty := ctx.Bool("ti")
+		// 启动容器（调用你自定义的 Run 函数）
 		Run(tty, cmd)
 		return nil
 	},
 }
 
 // initCommand 命令定义：容器内部使用的初始化命令
-// 这个命令不对用户开放，只在内部用于容器创建过程中被自动调用
+// 注意：这个命令不是用户手动调用的，而是由父进程在容器环境中自动触发
 var initCommand = &cli.Command{
 	Name:  "init",
 	Usage: `初始化容器，创建 namespace 和 cgroups 资源限制，例如: MiniDocker init [容器名称]`,
 	Action: func(ctx *cli.Context) error {
+		// 日志记录：进入容器初始化流程
 		log.Infof("初始化容器")
-		// 获取初始化时传入的用户命令（比如 /bin/bash）
+		// 获取容器初始化命令（用户传入的要执行的命令）
 		cmd := ctx.Args().Get(0)
 		log.Infof("command %s", cmd)
-		// 调用容器的初始化进程
+		// 调用容器初始化函数（挂载、执行 command 等）
 		err := container.RunContainerInitProcess(cmd, nil)
 		return err
 	},
