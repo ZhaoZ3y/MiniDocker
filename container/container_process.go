@@ -20,7 +20,11 @@ func NewParentProcess(tty bool) (*exec.Cmd, *os.File) {
 
 	// 创建一个新的命令，该命令会重新执行当前程序，并传递参数 "init"
 	// init 子命令负责容器中的初始化操作
-	cmd := exec.Command("/proc/self/exe", "init")
+	selfPath, err := os.Executable()
+	if err != nil {
+		log.Fatalf("获取自身路径失败: %v", err)
+	}
+	cmd := exec.Command(selfPath, "init")
 
 	// 设置命令的系统属性，使其运行在新的命名空间中，实现隔离
 	cmd.SysProcAttr = &syscall.SysProcAttr{
