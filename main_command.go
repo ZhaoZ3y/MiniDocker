@@ -23,11 +23,16 @@ var runCommand = &cli.Command{
 		if ctx.NArg() < 1 {
 			return fmt.Errorf("缺少容器名称参数")
 		}
+		var cmdArray []string
+		for _, arg := range ctx.Args().Slice() {
+			cmdArray = append(cmdArray, arg)
+		}
+
 		// 获取执行的命令
-		cmd := ctx.Args().Get(0)
+		cmdArray = cmdArray[1:]
 		// 获取是否启用 tty 和交互模式
 		tty := ctx.Bool("ti")
-		Run(tty, cmd)
+		Run(tty, cmdArray)
 		return nil
 	},
 }
@@ -43,7 +48,7 @@ var initCommand = &cli.Command{
 		cmd := ctx.Args().Get(0)
 		log.Infof("command %s", cmd)
 		// 调用容器的初始化进程
-		err := container.RunContainerInitProcess(cmd, nil)
+		err := container.RunContainerInitProcess()
 		return err
 	},
 }
