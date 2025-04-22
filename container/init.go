@@ -124,6 +124,15 @@ func setUpMount() {
 		logrus.Errorf("执行 pivot_root 失败: %v", err)
 		return
 	}
+	// ✅ 确保 /proc 和 /dev 存在
+	if err := os.MkdirAll("/proc", 0755); err != nil {
+		logrus.Errorf("创建 /proc 目录失败: %v", err)
+		return
+	}
+	if err := os.MkdirAll("/dev", 0755); err != nil {
+		logrus.Errorf("创建 /dev 目录失败: %v", err)
+		return
+	}
 	// 设置默认挂载参数：
 	// MS_NOEXEC：不允许执行二进制
 	// MS_NOSUID：不允许 set-user-ID 或 set-group-ID

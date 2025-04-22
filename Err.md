@@ -106,3 +106,70 @@ INFO[0000] 找到可执行文件路径: /usr/bin/sh
 于是我查看书籍发现我的工作目录与书本的不一样，书本是将busybox解压到了busybox目录下并作为工作目录
 而我的却是在二进制文件的目录下工作导致失败
 
+后续询问ai给我两个解决方法
+
+### 解决方法1
+```go
+// 直接使用当前的工作目录进行挂载
+func setUpMount() {
+	pwd, err := os.Getwd()
+	if err != nil {
+		logrus.Errorf("获取当前工作目录失败: %v", err)
+		return
+	}
+	logrus.Infof("当前工作目录: %s", pwd)
+
+	// 👇这行代码是关键，强制把当前目录挂载为自己（bind mount）
+	if err := syscall.Mount(pwd, pwd, "bind", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
+		logrus.Errorf("绑定当前目录失败: %v", err)
+		return
+	}
+
+	// 执行 pivot_root
+	if err := pivotRoot(pwd); err != nil {
+		logrus.Errorf("执行 pivot_root 失败: %v", err)
+		return
+	}
+
+	// 后面挂载 /proc、/dev 保持不变
+	...
+}
+```
+
+后续尝试之后出现了小问题
+```shell
+yzq@yzq-virtual-machine:~/Desktop/MiniDocker$ sudo ./MiniDocker run -ti sh
+INFO[0000] 用户传入的命令：sh                                   
+INFO[0000] 初始化容器                                        
+INFO[0000] 当前工作目录: /home/yzq/Desktop/MiniDocker         
+ERRO[0000] 挂载 /proc 失败: no such file or directory       
+ERRO[0000] 查找路径失败: exec: "sh": executable file not found in $PATH 
+2025/04/22 04:34:55 exec: "sh": executable file not found in $PATH
+```
+
+接着修复这个小问题
+```go
+func setUpMount() {
+	pwd, err := os.Getwd()
+	if err != nil {
+		logrus.Errorf("获取当前工作目录失败: %v", err)
+		return
+	}
+	logrus.Infof("当前工作目录: %s", pwd)
+
+	// 👇这行代码是关键，强制把当前目录挂载为自己（bind mount）
+	if err := syscall.Mount(pwd, pwd, "bind", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
+		logrus.Errorf("绑定当前目录失败: %v", err)
+		return
+	}
+
+	// 执行 pivot_root
+	if err := pivotRoot(pwd); err != nil {
+		logrus.Errorf("执行 pivot_root 失败: %v", err)
+		return
+	}
+
+	// 后面挂载 /proc、/dev 保持不变
+	...
+}
+```
