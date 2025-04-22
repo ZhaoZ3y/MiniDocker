@@ -179,3 +179,24 @@ func setUpMount() {
 书上是在busybox的工作目录下运行
 
 所有我解压了busybox.tar.gz到当前目录下，并且直接将工作目录写死在代码内部
+
+但是也出现了小问题
+```shell
+yzq@yzq-virtual-machine:~/Desktop/MiniDocker$ sudo ./MiniDocker run -ti sh
+INFO[0000] 用户传入的命令：sh                                   
+INFO[0000] 初始化容器                                        
+INFO[0000] 当前工作目录: /home/yzq/Desktop/MiniDocker/busybox 
+ERRO[0000] 挂载 /proc 失败: no such file or directory       
+INFO[0000] 找到可执行文件路径: /bin/sh 
+```
+
+后续修改在busybox目录下创建了proc和dev目录
+```go
+// 确保 /proc 目录存在
+	procDir := filepath.Join(root, "proc")
+	if err := os.MkdirAll(procDir, 0755); err != nil {
+		logrus.Errorf("创建 /proc 目录失败: %v", err)
+		return
+	}
+```
+

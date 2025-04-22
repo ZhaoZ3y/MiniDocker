@@ -113,6 +113,12 @@ func setUpMount(root string) {
 	//	return
 	//}
 	logrus.Infof("当前工作目录: %s", root)
+	// 确保 /proc 目录存在
+	procDir := filepath.Join(root, "proc")
+	if err := os.MkdirAll(procDir, 0755); err != nil {
+		logrus.Errorf("创建 /proc 目录失败: %v", err)
+		return
+	}
 	// 执行 pivot_root 切换根文件系统
 	if err := pivotRoot(root); err != nil {
 		logrus.Errorf("执行 pivot_root 失败: %v", err)
