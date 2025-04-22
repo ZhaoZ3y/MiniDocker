@@ -81,8 +81,8 @@ cmd := exec.Command("/proc/self/exe", "init")
 在Linux中，`/proc/self/exe`是一个特殊的符号链接，指向当前进程的可执行文件。这个链接在某些情况下可能会失效，尤其是在容器化环境中。
 但 在一些特定环境（特别是构建后的二进制文件运行时）会失败，尤其是 go build 输出在临时目录中，或者文件系统有问题。
 
-## 常见原因：可执行文件在不支持的文件系统中
-## 解决方法
+### 常见原因：可执行文件在不支持的文件系统中
+### 解决方法
 1. 使用绝对路径替代 /proc/self/exe
 ```go
 selfPath, err := os.Executable()
@@ -92,3 +92,17 @@ logrus.Fatalf("获取自身路径失败: %v", err)
 cmd := exec.Command(selfPath, "init")
 ```
 已成功解决
+
+## 3.ERRO[0000] 执行 pivot_root 失败: 执行 pivot_root 失败: invalid argument
+错误日志
+```shell
+NFO[0000] 初始化容器                                        
+INFO[0000] 用户传入的命令：sh                                   
+INFO[0000] 当前工作目录: /home/yzq/Desktop/MiniDocker         
+ERRO[0000] 执行 pivot_root 失败: 执行 pivot_root 失败: invalid argument 
+INFO[0000] 找到可执行文件路径: /usr/bin/sh   
+```
+
+于是我查看书籍发现我的工作目录与书本的不一样，书本是将busybox解压到了busybox目录下并作为工作目录
+而我的却是在二进制文件的目录下工作导致失败
+

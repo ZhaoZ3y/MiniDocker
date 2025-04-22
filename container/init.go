@@ -64,8 +64,12 @@ func readUserCommand() []string {
 func pivotRoot(root string) error {
 	// 1. 先把 root 重新 mount 一次，把自己挂载到自己上，目的是为了创建一个新的 mount namespace，
 	// 避免出现 “device or resource busy” 的问题
+	if err := syscall.Mount("", "/", "", syscall.MS_PRIVATE|syscall.MS_REC, ""); err != nil {
+		logrus.Errorf("设置 mount namespace 私有失败: %v", err)
+	}
+
 	if err := syscall.Mount(root, root, "bind", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
-		return fmt.Errorf("重新挂载 root 失败: %v", err)
+		logrus.Errorf("重新 bind mount root 失败: %v", err)
 	}
 
 	// 2. 创建一个 .pivot_root 目录用于存放旧的 root，
@@ -109,6 +113,12 @@ func setUpMount() {
 		return
 	}
 	logrus.Infof("当前工作目录: %s", pwd)
+	// 将当前目录重新挂载一次，作为挂载点
+	if err := syscall.Mount(pwd, pwd, "bind", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
+		logrus.Errorf("重新绑定挂载点失败: %v", err)
+		return
+	}
+
 	// 执行 pivot_root 切换根文件系统
 	if err := pivotRoot(pwd); err != nil {
 		logrus.Errorf("执行 pivot_root 失败: %v", err)
