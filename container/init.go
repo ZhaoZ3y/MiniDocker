@@ -24,7 +24,7 @@ func RunContainerInitProcess() error {
 	}
 
 	// 设置挂载点
-	setUpMount()
+	setUpMount("/home/yzq/Desktop/MiniDocker/busybox")
 	// 查找要执行命令的绝对路径
 	path, err := exec.LookPath(cmdArray[0])
 	if err != nil {
@@ -105,32 +105,17 @@ func pivotRoot(root string) error {
 
 // setUpMount 设置容器的挂载点
 // 主要是挂载 /proc 和 /dev 目录
-func setUpMount() {
-	// 获取当前工作目录
-	pwd, err := os.Getwd()
-	if err != nil {
-		logrus.Errorf("获取当前工作目录失败: %v", err)
-		return
-	}
-	logrus.Infof("当前工作目录: %s", pwd)
-	// 将当前目录重新挂载一次，作为挂载点
-	if err := syscall.Mount(pwd, pwd, "bind", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
-		logrus.Errorf("重新绑定挂载点失败: %v", err)
-		return
-	}
-
+func setUpMount(root string) {
+	//// 获取当前工作目录
+	//pwd, err := os.Getwd()
+	//if err != nil {
+	//	logrus.Errorf("获取当前工作目录失败: %v", err)
+	//	return
+	//}
+	logrus.Infof("当前工作目录: %s", root)
 	// 执行 pivot_root 切换根文件系统
-	if err := pivotRoot(pwd); err != nil {
+	if err := pivotRoot(root); err != nil {
 		logrus.Errorf("执行 pivot_root 失败: %v", err)
-		return
-	}
-	// ✅ 确保 /proc 和 /dev 存在
-	if err := os.MkdirAll("/proc", 0755); err != nil {
-		logrus.Errorf("创建 /proc 目录失败: %v", err)
-		return
-	}
-	if err := os.MkdirAll("/dev", 0755); err != nil {
-		logrus.Errorf("创建 /dev 目录失败: %v", err)
 		return
 	}
 	// 设置默认挂载参数：
