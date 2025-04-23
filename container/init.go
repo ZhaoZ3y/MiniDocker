@@ -64,18 +64,14 @@ func readUserCommand() []string {
 func pivotRoot(root string) error {
 	// 1. 先把 root 重新 mount 一次，把自己挂载到自己上，目的是为了创建一个新的 mount namespace，
 	// 避免出现 “device or resource busy” 的问题
-	if err := syscall.Mount("", "/", "", syscall.MS_PRIVATE|syscall.MS_REC, ""); err != nil {
-		logrus.Errorf("设置 mount namespace 私有失败: %v", err)
-	}
-
 	if err := syscall.Mount(root, root, "bind", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
-		logrus.Errorf("重新 bind mount root 失败: %v", err)
+		logrus.Errorf("挂载 root 失败: %v", err)
 	}
 
 	// 2. 创建一个 .pivot_root 目录用于存放旧的 root，
 	// pivot_root 系统调用要求第二个参数必须在新的 root 目录内部
 	pivotDir := filepath.Join(root, ".pivot_root")
-	if err := os.Mkdir(pivotDir, 0755); err != nil {
+	if err := os.Mkdir(pivotDir, 0777); err != nil {
 		return fmt.Errorf("创建 pivot_root 目录失败: %v", err)
 	}
 
@@ -113,17 +109,8 @@ func setUpMount() {
 		return
 	}
 	logrus.Infof("当前工作目录: %s", pwd)
-	// 确保 /proc 目录存在
-	procDir := filepath.Join(pwd, "proc")
-	if err := os.MkdirAll(procDir, 0755); err != nil {
-		logrus.Errorf("创建 /proc 目录失败: %v", err)
-		return
-	}
 	// 执行 pivot_root 切换根文件系统
-	if err := pivotRoot(pwd); err != nil {
-		logrus.Errorf("执行 pivot_root 失败: %v", err)
-		return
-	}
+	pivotRoot(pwd)
 	// 设置默认挂载参数：
 	// MS_NOEXEC：不允许执行二进制
 	// MS_NOSUID：不允许 set-user-ID 或 set-group-ID

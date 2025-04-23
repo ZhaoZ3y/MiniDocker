@@ -13,6 +13,11 @@ func NewWorkSpace(rootURL string, mountURL string) {
 	CreateReadOnlyLayer(rootURL)        // 解压 busybox 创建只读层
 	CreateWriteLayer(rootURL)           // 创建写层目录（upper、work）
 	CreateMountPoint(rootURL, mountURL) // 使用 OverlayFS 挂载为联合文件系统
+
+	containerRootDir := mountURL + "/root"
+	if err := os.MkdirAll(containerRootDir, 0755); err != nil {
+		log.Errorf("创建容器内 /root 目录失败: %v", err)
+	}
 }
 
 // CreateReadOnlyLayer 创建只读层：解压 busybox.tar 到指定目录。
