@@ -53,8 +53,6 @@ func NewParentProcess(tty bool) (*exec.Cmd, *os.File) {
 	// 设置子进程的当前工作目录为挂载点目录
 	cmd.Dir = mountURL
 
-	// TODO: 可选地设置 cmd.Env = os.Environ() + 额外变量，传递环境变量
-
 	return cmd, writePipe
 }
 

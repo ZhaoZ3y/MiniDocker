@@ -200,4 +200,31 @@ INFO[0000] 找到可执行文件路径: /bin/sh
 	}
 ```
 后续应该解决了问题，只不过我的好像没有输出全部如同书上的日志，但是ChatGPT说我的是正常的，但愿如此吧，只能继续写了。
+### 后日记
+后面还是改回去了，我把我的二进制文件放在了root目录下这样就能成功了，主要是后面的内容需要在root环境下才能成功（
 
+## 3. mount: /root/mnt: 未知的文件系统类型“aufs”
+
+错误详情
+```shell
+mount: /root/mnt: 未知的文件系统类型“aufs”.
+ERRO[0000] 挂载失败: exit status 32 
+```
+后续我进行百度之后发现Ubuntu 22.04（jammy）已经不再默认提供 aufs-tools 包了，因为 AUFS 已经被官方标记为“过时”，推荐使用 overlayfs 替代。
+
+所以我将原来的地方改成了overlayfs而且这个是在Linux内核就支持的无需而外安装
+
+```go
+// 使用 overlayfs 替代 aufs
+lowerDir := rootURL + "busybox"
+upperDir := rootURL + "writeLayer"
+workDir := rootURL + "work"
+mountPoint := mountURL
+
+_ = os.Mkdir(workDir, 0777) // overlayfs 需要一个专用 work 目录
+
+cmd := exec.Command("mount", "-t", "overlay", "overlay", "-o",
+"lowerdir="+lowerDir+",upperdir="+upperDir+",workdir="+workDir,
+mountPoint)
+
+```
