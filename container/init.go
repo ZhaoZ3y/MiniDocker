@@ -35,7 +35,7 @@ func RunContainerInitProcess() error {
 
 	// 使用 syscall.Exec 替换当前进程为用户指定的命令进程
 	// cmdArray 是命令及其参数，os.Environ() 传入当前环境变量
-	if err := syscall.Exec(path, cmdArray, os.Environ()); err != nil {
+	if err := syscall.Exec(path, cmdArray[0:], os.Environ()); err != nil {
 		logrus.Errorf("执行用户命令失败: %v", err)
 	}
 	return nil
