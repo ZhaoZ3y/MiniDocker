@@ -40,17 +40,32 @@ func volumeUrlExtract(volume string) []string {
 // MountVolume 将宿主机目录挂载到容器文件系统的指定路径下
 // volumeURLs[0] 为宿主机路径，volumeURLs[1] 为容器内部路径（相对 mountURL）
 func MountVolume(rootURL string, mountURL string, volumeURLs []string) {
-	parentURL := volumeURLs[0] // 宿主机目录
-	if err := os.Mkdir(parentURL, 0777); err != nil {
+	parentURL := volumeURLs[0] // 宿主机目录 /root/volume
+
+	// 确保宿主机目录存在
+	if err := os.MkdirAll(parentURL, 0777); err != nil && !os.IsExist(err) {
 		log.Errorf("创建宿主机目录 %s 失败: %v", parentURL, err)
 	}
 
-	containerURL := volumeURLs[1] // 容器内目录
+	containerURL := volumeURLs[1] // 容器内目录路径 /containerVolume
+
+	// 确保容器内目录名是相对路径（不以/开头）
+	if strings.HasPrefix(containerURL, "/") {
+		containerURL = containerURL[1:] // 去掉开头的斜杠
+	}
+
 	containerVolumeURL := filepath.Join(mountURL, containerURL)
 
 	// 创建容器内挂载目录
-	if err := os.Mkdir(containerVolumeURL, 0777); err != nil {
+	if err := os.MkdirAll(containerVolumeURL, 0777); err != nil && !os.IsExist(err) {
 		log.Errorf("创建容器目录 %s 失败: %v", containerVolumeURL, err)
+	}
+
+	// 确保要挂载的宿主机目录是存在且可用的
+	fileInfo, err := os.Stat(parentURL)
+	if err != nil || !fileInfo.IsDir() {
+		log.Errorf("宿主机目录 %s 不存在或不是一个目录: %v", parentURL, err)
+		return
 	}
 
 	// 使用 bind mount 挂载宿主机目录到容器目录
@@ -61,15 +76,11 @@ func MountVolume(rootURL string, mountURL string, volumeURLs []string) {
 		log.Errorf("挂载宿主机目录 %s 到容器目录 %s 失败: %v", parentURL, containerVolumeURL, err)
 	} else {
 		log.Infof("成功挂载宿主机目录 %s 到容器目录 %s", parentURL, containerVolumeURL)
-	}
 
-	// 添加验证挂载成功的检查
-	verifyCmd := exec.Command("mount")
-	output, _ := verifyCmd.CombinedOutput()
-	log.Infof("当前挂载: %s", string(output))
-	// 同时检查目录是否可访问
-	if _, err := os.Stat(containerVolumeURL); err != nil {
-		log.Errorf("容器目录 %s 挂载后不可访问: %v", containerVolumeURL, err)
+		// 验证挂载是否正确
+		verifyCmd := exec.Command("findmnt", "--output", "SOURCE,TARGET", containerVolumeURL)
+		output, _ := verifyCmd.CombinedOutput()
+		log.Infof("挂载详情: %s", string(output))
 	}
 }
 
