@@ -10,25 +10,40 @@ import (
 // runCommand 命令定义：用于创建并运行一个容器
 // 使用示例：MiniDocker run -ti /bin/bash
 var runCommand = &cli.Command{
-	Name:  "run",
+	Name:  "run", // 命令名称为 run
 	Usage: `创建一个容器，并启用 namespace 和 cgroups 资源限制，例如: MiniDocker run -ti [镜像名] [命令]`,
 	Flags: []cli.Flag{
+		// -ti 参数：表示是否启用 tty 和交互模式
 		&cli.BoolFlag{
 			Name:  "ti",
 			Usage: "启用 tty 和交互模式（interactive mode），即类似 docker run -it",
 		},
+		// -v 参数：用于挂载宿主机目录到容器内部
+		&cli.StringFlag{
+			Name:  "v",
+			Usage: "挂载目录，例如: -v /host/path:/container/path",
+		},
 	},
 	Action: func(ctx *cli.Context) error {
-		// 参数检查：至少需要一个命令参数
+		// 参数检查：至少需要一个命令参数（即用户要运行的程序）
 		if ctx.NArg() < 1 {
 			return fmt.Errorf("缺少要执行的命令参数")
 		}
-		// 获取是否启用 tty 和交互模式
-		tty := ctx.Bool("ti")
-		// 获取完整的命令数组（包括参数）
-		commandArray := ctx.Args().Slice()
 
-		Run(tty, commandArray)
+		// 获取完整的命令数组（包含命令和其参数）
+		var commandArray []string
+		for _, arg := range ctx.Args().Slice() {
+			commandArray = append(commandArray, arg)
+		}
+
+		// 获取是否启用 tty 和交互模式（布尔值）
+		tty := ctx.Bool("ti")
+
+		// 获取用户指定的挂载目录（形如 /宿主机路径:/容器路径）
+		volume := ctx.String("v")
+
+		// 执行容器创建与运行逻辑
+		Run(tty, commandArray, volume)
 		return nil
 	},
 }

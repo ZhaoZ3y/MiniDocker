@@ -226,5 +226,32 @@ _ = os.Mkdir(workDir, 0777) // overlayfs 需要一个专用 work 目录
 cmd := exec.Command("mount", "-t", "overlay", "overlay", "-o",
 "lowerdir="+lowerDir+",upperdir="+upperDir+",workdir="+workDir,
 mountPoint)
+```
+
+后续修改挂载的时候也将aufs改成overlay但是ChatGPT推荐另外一个
+```go
+// MountVolume 挂载宿主机目录到容器挂载点
+func MountVolume(rootURL string, mntURL string, volumeURLs []string) {
+	// 创建宿主机要挂载的目录
+	parentUrl := volumeURLs[0]
+	if err := os.MkdirAll(parentUrl, 0777); err != nil {
+		log.Infof("创建宿主机目录 %s 失败: %v", parentUrl, err)
+	}
+
+	// 在容器挂载点里创建容器内部的挂载目录
+	containerUrl := volumeURLs[1]
+	containerVolumeURL := mntURL + containerUrl
+	if err := os.MkdirAll(containerVolumeURL, 0777); err != nil {
+		log.Infof("创建容器内部目录 %s 失败: %v", containerVolumeURL, err)
+	}
+
+	// 把宿主机目录挂载到容器内部目录，使用 bind mount
+	cmd := exec.Command("mount", "--bind", parentUrl, containerVolumeURL)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		log.Errorf("挂载宿主机目录失败: %v", err)
+	}
+}
 
 ```

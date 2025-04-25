@@ -10,42 +10,49 @@ import (
 // Run 启动容器的主函数
 // tty: 是否启用终端交互（即 docker run -it 的效果）
 // commandArray: 用户希望在容器中执行的命令及参数
-func Run(tty bool, commandArray []string) {
-	// 创建容器父进程，并建立与子进程的通信管道
-	parent, writePipe := container.NewParentProcess(tty)
+// volume: 挂载的宿主机目录路径，格式为 /宿主机路径:/容器路径
+func Run(tty bool, commandArray []string, volume string) {
+	// 创建容器父进程，并建立与子进程（init 进程）的通信管道
+	parent, writePipe := container.NewParentProcess(tty, volume)
 	if parent == nil {
 		log.Error("父进程创建失败")
 		return
 	}
 
-	// 启动容器进程（即再次执行自身程序，参数为 "init"）
+	// 启动父进程（实际是 fork 出子进程，执行自身程序并传参 "init"）
 	if err := parent.Start(); err != nil {
 		log.Error(err)
 		return
 	}
 
-	// ========== 以下是用于设置 cgroup 的资源限制逻辑，暂时注释掉 ==========
+	// ======================= 以下是用于设置 cgroup 的资源限制逻辑，暂时注释掉 =======================
+	// 创建一个新的 cgroup 管理器，命名为 "MiniDocker-Cgroup"
 	//cgroupManager := cgroup.NewCgroupManager("MiniDocker-Cgroup")
-	//defer cgroupManager.Destroy() // 进程退出时自动销毁 cgroup
-	//
-	//// 设置资源限制（如内存、CPU等），res 是一个 ResourceConfig 配置结构体
+	//defer cgroupManager.Destroy() // 函数结束时自动销毁 cgroup，防止资源泄漏
+
+	// 设置资源限制，例如内存、CPU 等，res 是一个 ResourceConfig 类型的结构体
 	//if err := cgroupManager.Set(res); err != nil {
 	//	log.Error("资源限制设置失败", err)
 	//	return
 	//}
-	//
-	//// 将容器进程加入 cgroup 管理
+
+	// 将容器进程加入该 cgroup 中进行限制管理
 	//if err := cgroupManager.Apply(parent.Process.Pid); err != nil {
 	//	log.Error("加入进程失败", err)
 	//	return
 	//}
-	// =======================================================
+	// ===========================================================================================
 
-	// 将用户的命令写入到管道中，传递给 init 进程
+	// 向 init 进程通过管道发送用户命令（init 进程会读取这个命令并执行）
 	sendInitCommand(commandArray, writePipe)
 
-	// 等待容器进程结束（父进程阻塞）
+	// 等待容器进程执行完毕，阻塞等待子进程退出
 	parent.Wait()
+
+	// 以下是清理工作：
+	mntURL := "/root/mnt"                              // 容器挂载点路径
+	rootURL := "/root"                                 // 容器根目录
+	container.DeleteWorkSpace(rootURL, mntURL, volume) // 删除挂载的工作空间
 
 	// 容器运行结束，退出主进程
 	os.Exit(0)

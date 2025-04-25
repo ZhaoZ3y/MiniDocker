@@ -5,18 +5,65 @@ import (
 	log "github.com/sirupsen/logrus"
 	"os"
 	"os/exec"
+	"strings"
 )
 
-// NewWorkSpace 创建容器工作空间，包括只读层（busybox）、写层和挂载点。
-// rootURL 是工作空间的根路径，mountURL 是容器挂载点路径。
-func NewWorkSpace(rootURL string, mountURL string) {
-	CreateReadOnlyLayer(rootURL)        // 解压 busybox 创建只读层
-	CreateWriteLayer(rootURL)           // 创建写层目录（upper、work）
-	CreateMountPoint(rootURL, mountURL) // 使用 OverlayFS 挂载为联合文件系统
+// NewWorkSpace 创建容器的工作空间，包括只读层、写层、挂载点以及用户指定的挂载目录。
+// rootURL 是容器工作空间的根目录，mountURL 是容器最终挂载点（容器运行时根目录）。
+func NewWorkSpace(rootURL string, mountURL string, volume string) {
+	// 解压 busybox 镜像作为只读层
+	CreateReadOnlyLayer(rootURL)
+	// 创建写层目录，包括 upper 和 work 目录（OverlayFS 结构要求）
+	CreateWriteLayer(rootURL)
+	// 使用 OverlayFS 合并只读层和写层，挂载到 mountURL 上
+	CreateMountPoint(rootURL, mountURL)
 
+	// 容器默认会用到的 /root 目录，提前创建
 	containerRootDir := mountURL + "/root"
 	if err := os.MkdirAll(containerRootDir, 0755); err != nil {
 		log.Errorf("创建容器内 /root 目录失败: %v", err)
+	}
+
+	// 如果用户指定了 volume 参数，则解析并挂载宿主机目录
+	if volume != "" {
+		volumeURLs := volumeUrlExtract(volume)
+		if len(volumeURLs) == 2 && volumeURLs[0] != "" && volumeURLs[1] != "" {
+			MountVolume(rootURL, mountURL, volumeURLs)
+			log.Infof("挂载宿主机目录 %s", volumeURLs)
+		} else {
+			log.Infof("宿主机目录格式错误，正确格式为 /host/path:/container/path")
+		}
+	}
+}
+
+// volumeUrlExtract 解析用户传入的挂载路径字符串，格式为 /宿主机路径:/容器路径
+func volumeUrlExtract(volume string) []string {
+	var volumeURLs []string
+	volumeURLs = strings.Split(volume, ":")
+	return volumeURLs
+}
+
+// MountVolume 将宿主机目录挂载到容器文件系统的指定路径下
+// volumeURLs[0] 为宿主机路径，volumeURLs[1] 为容器内部路径（相对 mountURL）
+func MountVolume(rootURL string, mountURL string, volumeURLs []string) {
+	parentURL := volumeURLs[0] // 宿主机目录
+	if err := os.MkdirAll(parentURL, 0777); err != nil {
+		log.Infof("创建宿主机目录 %s 失败: %v", parentURL, err)
+	}
+
+	containerURL := volumeURLs[1] // 容器内目录
+	containerVolumeURL := mountURL + containerURL
+	if err := os.MkdirAll(containerVolumeURL, 0777); err != nil {
+		log.Infof("创建容器目录 %s 失败: %v", containerVolumeURL, err)
+	}
+
+	// 使用 overlay 文件系统挂载，注意：lowerdir 是宿主机路径，upperdir/workdir 是 rootURL 内部临时目录
+	// 由于这里是 bind mount，我们不使用 overlay 合并多个目录，而是简单挂载宿主机目录进容器中
+	cmd := exec.Command("mount", "--bind", parentURL, containerVolumeURL)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		log.Errorf("挂载失败: %s", err)
 	}
 }
 
@@ -89,27 +136,79 @@ func PathExists(path string) (bool, error) {
 	return false, err // 其他错误
 }
 
-// DeleteWorkSpace 删除容器工作空间，卸载挂载点并清理写层目录。
-func DeleteWorkSpace(rootURL string, mountURL string) {
-	DeleteMountPoint(rootURL, mountURL) // 卸载挂载点
-	DeleteWriteLayer(rootURL)           // 删除写层
+// DeleteWorkSpace 删除容器工作空间，包含卸载挂载点和清理写层目录。
+// 参数：
+// - rootURL：容器文件系统的根路径
+// - mountURL：挂载点路径
+// - volume：卷配置字符串，如果非空则表示容器挂载了卷
+func DeleteWorkSpace(rootURL string, mountURL string, volume string) {
+	if volume != "" {
+		// 如果挂载了卷，解析卷路径
+		volumeURLs := volumeUrlExtract(volume)
+		// 如果解析结果合法，执行带卷的卸载逻辑
+		if len(volumeURLs) == 2 && volumeURLs[0] != "" && volumeURLs[1] != "" {
+			DeleteMountPointWithVolume(rootURL, mountURL, volumeURLs)
+		} else {
+			// 否则仅卸载挂载点
+			DeleteMountPoint(rootURL, mountURL)
+		}
+	} else {
+		// 如果没有挂载卷，直接卸载挂载点
+		DeleteMountPoint(rootURL, mountURL)
+	}
+	// 删除写层目录
+	DeleteWriteLayer(rootURL)
 }
 
-// DeleteMountPoint 卸载挂载点，并删除挂载点目录。
+// DeleteMountPoint 卸载挂载点并删除挂载点目录。
+// 参数：
+// - rootURL：容器根路径（本函数中未使用）
+// - mountURL：挂载点路径
 func DeleteMountPoint(rootURL string, mountURL string) {
+	// 执行 umount 命令卸载挂载点
 	cmd := exec.Command("umount", mountURL)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		log.Errorf("卸载挂载点 %s 失败: %v", mountURL, err)
 	}
-
+	// 删除挂载点目录
 	if err := os.RemoveAll(mountURL); err != nil {
 		log.Errorf("删除挂载点目录 %s 失败: %v", mountURL, err)
 	}
 }
 
-// DeleteWriteLayer 删除写层目录。
+// DeleteMountPointWithVolume 卸载带有数据卷的挂载点，并删除挂载点目录。
+// 参数：
+// - rootURL：容器根路径（未使用）
+// - mountURL：挂载点路径
+// - volumeURLs：长度为2的字符串数组，包含宿主机卷路径和容器内挂载路径
+func DeleteMountPointWithVolume(rootURL string, mountURL string, volumeURLs []string) {
+	// 拼接容器内部卷的完整挂载路径
+	containerUrl := mountURL + volumeURLs[1]
+	// 先卸载容器内部卷的挂载路径
+	cmd := exec.Command("umount", containerUrl)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		log.Errorf("卸载挂载点 %s 失败: %v", containerUrl, err)
+	}
+	// 再卸载 mountURL 本身
+	cmd = exec.Command("umount", mountURL)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		log.Errorf("卸载挂载点 %s 失败: %v", mountURL, err)
+	}
+	// 删除挂载点目录
+	if err := os.RemoveAll(mountURL); err != nil {
+		log.Infof("删除挂载点目录 %s 失败: %v", mountURL, err)
+	}
+}
+
+// DeleteWriteLayer 删除容器的写层目录。
+// 参数：
+// - rootURL：容器根路径，写层目录位于 rootURL/writeLayer/
 func DeleteWriteLayer(rootURL string) {
 	writeURL := rootURL + "writeLayer/"
 	if err := os.RemoveAll(writeURL); err != nil {
