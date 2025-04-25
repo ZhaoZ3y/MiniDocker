@@ -5,6 +5,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -17,13 +18,6 @@ func NewWorkSpace(rootURL string, mountURL string, volume string) {
 	CreateWriteLayer(rootURL)
 	// 使用 OverlayFS 合并只读层和写层，挂载到 mountURL 上
 	CreateMountPoint(rootURL, mountURL)
-
-	// 容器默认会用到的 /root 目录，提前创建
-	containerRootDir := mountURL + "/root"
-	if err := os.MkdirAll(containerRootDir, 0755); err != nil {
-		log.Errorf("创建容器内 /root 目录失败: %v", err)
-	}
-
 	// 如果用户指定了 volume 参数，则解析并挂载宿主机目录
 	if volume != "" {
 		volumeURLs := volumeUrlExtract(volume)
@@ -47,23 +41,35 @@ func volumeUrlExtract(volume string) []string {
 // volumeURLs[0] 为宿主机路径，volumeURLs[1] 为容器内部路径（相对 mountURL）
 func MountVolume(rootURL string, mountURL string, volumeURLs []string) {
 	parentURL := volumeURLs[0] // 宿主机目录
-	if err := os.MkdirAll(parentURL, 0777); err != nil {
-		log.Infof("创建宿主机目录 %s 失败: %v", parentURL, err)
+	if err := os.Mkdir(parentURL, 0777); err != nil {
+		log.Errorf("创建宿主机目录 %s 失败: %v", parentURL, err)
 	}
 
 	containerURL := volumeURLs[1] // 容器内目录
-	containerVolumeURL := mountURL + containerURL
-	if err := os.MkdirAll(containerVolumeURL, 0777); err != nil {
-		log.Infof("创建容器目录 %s 失败: %v", containerVolumeURL, err)
+	containerVolumeURL := filepath.Join(mountURL, containerURL)
+
+	// 创建容器内挂载目录
+	if err := os.Mkdir(containerVolumeURL, 0777); err != nil {
+		log.Errorf("创建容器目录 %s 失败: %v", containerVolumeURL, err)
 	}
 
-	// 使用 overlay 文件系统挂载，注意：lowerdir 是宿主机路径，upperdir/workdir 是 rootURL 内部临时目录
-	// 由于这里是 bind mount，我们不使用 overlay 合并多个目录，而是简单挂载宿主机目录进容器中
+	// 使用 bind mount 挂载宿主机目录到容器目录
 	cmd := exec.Command("mount", "--bind", parentURL, containerVolumeURL)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		log.Errorf("挂载失败: %s", err)
+		log.Errorf("挂载宿主机目录 %s 到容器目录 %s 失败: %v", parentURL, containerVolumeURL, err)
+	} else {
+		log.Infof("成功挂载宿主机目录 %s 到容器目录 %s", parentURL, containerVolumeURL)
+	}
+
+	// 添加验证挂载成功的检查
+	verifyCmd := exec.Command("mount")
+	output, _ := verifyCmd.CombinedOutput()
+	log.Infof("当前挂载: %s", string(output))
+	// 同时检查目录是否可访问
+	if _, err := os.Stat(containerVolumeURL); err != nil {
+		log.Errorf("容器目录 %s 挂载后不可访问: %v", containerVolumeURL, err)
 	}
 }
 
@@ -91,14 +97,14 @@ func CreateReadOnlyLayer(rootURL string) {
 // CreateWriteLayer 创建写层目录，包括 overlay 所需的 upper 和 work 子目录。
 func CreateWriteLayer(rootURL string) {
 	writeURL := rootURL + "writeLayer/"
-	if err := os.MkdirAll(writeURL, 0777); err != nil && !os.IsExist(err) {
+	if err := os.Mkdir(writeURL, 0777); err != nil && !os.IsExist(err) {
 		log.Errorf("创建写层目录 %s 失败: %v", writeURL, err)
 	}
 }
 
 // CreateMountPoint 使用 OverlayFS 将只读层和写层挂载到挂载点目录。
 func CreateMountPoint(rootURL string, mountURL string) {
-	if err := os.MkdirAll(mountURL, 0777); err != nil && !os.IsExist(err) {
+	if err := os.Mkdir(mountURL, 0777); err != nil && !os.IsExist(err) {
 		log.Errorf("创建挂载点目录 %s 失败: %v", mountURL, err)
 	}
 
@@ -107,10 +113,10 @@ func CreateMountPoint(rootURL string, mountURL string) {
 	workDir := rootURL + "writeLayer/work"   // OverlayFS 工作目录
 
 	// 创建 upper 和 work 子目录
-	if err := os.MkdirAll(upperDir, 0777); err != nil {
+	if err := os.Mkdir(upperDir, 0777); err != nil {
 		log.Errorf("创建 upper 目录失败: %v", err)
 	}
-	if err := os.MkdirAll(workDir, 0777); err != nil {
+	if err := os.Mkdir(workDir, 0777); err != nil {
 		log.Errorf("创建 work 目录失败: %v", err)
 	}
 
@@ -164,14 +170,25 @@ func DeleteWorkSpace(rootURL string, mountURL string, volume string) {
 // 参数：
 // - rootURL：容器根路径（本函数中未使用）
 // - mountURL：挂载点路径
+// DeleteMountPoint 卸载挂载点并删除挂载点目录。
 func DeleteMountPoint(rootURL string, mountURL string) {
+	// 确保没有进程占用挂载点
+	cmd := exec.Command("lsof", "+D", mountURL)
+	output, err := cmd.CombinedOutput()
+	if err == nil && len(output) > 0 {
+		log.Warnf("挂载点 %s 被进程占用，无法卸载", mountURL)
+		return
+	}
+
 	// 执行 umount 命令卸载挂载点
-	cmd := exec.Command("umount", mountURL)
+	cmd = exec.Command("umount", mountURL)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		log.Errorf("卸载挂载点 %s 失败: %v", mountURL, err)
+		return
 	}
+
 	// 删除挂载点目录
 	if err := os.RemoveAll(mountURL); err != nil {
 		log.Errorf("删除挂载点目录 %s 失败: %v", mountURL, err)
