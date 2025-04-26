@@ -1,6 +1,7 @@
 package main
 
 import (
+	"MiniDocker/cgroup/subsystems"
 	"MiniDocker/container"
 	"fmt"
 	log "github.com/sirupsen/logrus"
@@ -23,13 +24,32 @@ var runCommand = &cli.Command{
 			Name:  "v",
 			Usage: "挂载目录，例如: -v /host/path:/container/path",
 		},
+		// -d 参数：表示是否在后台运行容器
+		&cli.BoolFlag{
+			Name:  "d",
+			Usage: "后台运行容器",
+		},
+		// -m 参数：用于设置容器的内存限制
+		&cli.StringFlag{
+			Name:  "m",
+			Usage: "设置容器的内存限制，例如: -m 512m",
+		},
+		// -cpushare 参数：用于设置容器的 CPU 限制
+		&cli.StringFlag{
+			Name:  "cpushare",
+			Usage: "设置容器的 CPU 限制，例如: -cpushare 512",
+		},
+		// -cpuset 参数：用于设置容器的 CPU 核心限制
+		&cli.StringFlag{
+			Name:  "cpuset",
+			Usage: "设置容器的 CPU 核心限制，例如: -cpuset 0,1",
+		},
 	},
 	Action: func(ctx *cli.Context) error {
 		// 参数检查：至少需要一个命令参数（即用户要运行的程序）
 		if ctx.NArg() < 1 {
 			return fmt.Errorf("缺少要执行的命令参数")
 		}
-
 		// 获取完整的命令数组（包含命令和其参数）
 		var commandArray []string
 		for _, arg := range ctx.Args().Slice() {
@@ -37,13 +57,25 @@ var runCommand = &cli.Command{
 		}
 
 		// 获取是否启用 tty 和交互模式（布尔值）
-		tty := ctx.Bool("ti")
+		createTty := ctx.Bool("ti")
+		detach := ctx.Bool("d") // 是否后台运行容器
+		// createTty 和 detach 互斥，不能同时为 true
+		if createTty && detach {
+			return fmt.Errorf("不能同时使用 -ti 和 -d 参数")
+		}
+		// resConf 是资源限制配置结构体，包含内存、CPU 权重和 CPU 核心限制
+		resConf := &subsystems.ResourceConfig{
+			MemoryLimit: ctx.String("m"),        // 内存限制
+			CpuShare:    ctx.String("cpushare"), // CPU 权重限制
+			CpuSet:      ctx.String("cpuset"),   // CPU 核心限制
+		}
+		log.Infof("createTty: %v, detach: %v", createTty, detach)
 
 		// 获取用户指定的挂载目录（形如 /宿主机路径:/容器路径）
 		volume := ctx.String("v")
 
 		// 执行容器创建与运行逻辑
-		Run(tty, commandArray, volume)
+		Run(createTty, commandArray, volume, resConf)
 		return nil
 	},
 }
