@@ -4,69 +4,140 @@ import (
 	"MiniDocker/cgroup"
 	"MiniDocker/cgroup/subsystems"
 	"MiniDocker/container"
-	log "github.com/sirupsen/logrus"
+	"encoding/json"
+	"fmt"
+	"github.com/sirupsen/logrus"
+	"math/rand"
 	"os"
+	"path"
+	"strconv"
 	"strings"
+	"time"
 )
 
-// Run 启动容器的主函数
-// tty: 是否启用终端交互（即 docker run -it 的效果）
-// commandArray: 用户希望在容器中执行的命令及参数
-// volume: 挂载的宿主机目录路径，格式为 /宿主机路径:/容器路径
-func Run(tty bool, commandArray []string, volume string, res *subsystems.ResourceConfig) {
-	// 创建容器父进程，并建立与子进程（init 进程）的通信管道
+// Run 启动一个容器实例
+// tty 表示是否绑定终端（类似 docker run -it）
+// commandArray 是用户希望在容器中执行的命令及参数
+// volume 是宿主机与容器的挂载路径
+func Run(tty bool, commandArray []string, volume string, res *subsystems.ResourceConfig, containerName string) {
+	// 创建容器父进程和通信管道
 	parent, writePipe := container.NewParentProcess(tty, volume)
 	if parent == nil {
-		log.Error("父进程创建失败")
+		logrus.Error("父进程创建失败")
 		return
 	}
-
-	// 启动父进程（实际是 fork 出子进程，执行自身程序并传参 "init"）
+	// 启动父进程（fork 自身，进入 init 子流程）
 	if err := parent.Start(); err != nil {
-		log.Error(err)
+		logrus.Error(err)
 		return
 	}
 
-	//创建一个新的 cgroup 管理器，命名为 "MiniDocker-Cgroup"
+	// 记录容器基本信息
+	containerName, err := recordContainerInfo(parent.Process.Pid, commandArray, containerName)
+	if err != nil {
+		logrus.Error("容器信息记录失败", err)
+		return
+	}
+
+	// 创建并配置 Cgroup 管理器
 	cgroupManager := cgroup.NewCgroupManager("MiniDocker-Cgroup")
-	defer cgroupManager.Destroy() // 函数结束时自动销毁 cgroup，防止资源泄漏
-	//设置资源限制，例如内存、CPU 等，res 是一个 ResourceConfig 类型的结构体
+	defer cgroupManager.Destroy() // 确保退出时清理资源
+
+	// 设置资源限制
 	if err := cgroupManager.Set(res); err != nil {
-		log.Error("资源限制设置失败", err)
+		logrus.Error("资源限制设置失败", err)
 		return
 	}
-	//将容器进程加入该 cgroup 中进行限制管理
+	// 将容器进程加入 Cgroup
 	if err := cgroupManager.Apply(parent.Process.Pid); err != nil {
-		log.Error("加入进程失败", err)
+		logrus.Error("加入 Cgroup 失败", err)
 		return
 	}
 
-	// 向 init 进程通过管道发送用户命令（init 进程会读取这个命令并执行）
+	// 发送用户命令给 init 进程执行
 	sendInitCommand(commandArray, writePipe)
 
 	if tty {
-		// 等待容器进程执行完毕，阻塞等待子进程退出
+		// 等待容器进程结束
 		parent.Wait()
-		// 以下是清理工作：
-		mntURL := "/root/mnt"                              // 容器挂载点路径
-		rootURL := "/root"                                 // 容器根目录
-		container.DeleteWorkSpace(rootURL, mntURL, volume) // 删除挂载的工作空间
+		// 清理容器信息
+		deleteContainerInfo(containerName)
 	}
 
-	// 容器运行结束，退出主进程
+	// 退出当前主进程
 	os.Exit(0)
 }
 
-// sendInitCommand 将用户输入的命令通过管道写入给子进程（init 进程）
-// writePipe: 是父进程传给子进程的文件描述符，用于通信
+// sendInitCommand 将用户命令写入管道，传递给子进程（init 进程）
 func sendInitCommand(commandArray []string, writePipe *os.File) {
-	// 将命令数组转换为空格拼接的字符串，如 ["/bin/echo", "hello"] => "/bin/echo hello"
 	command := strings.Join(commandArray, " ")
-	log.Infof("用户传入的命令：%s", command)
+	logrus.Infof("用户传入的命令：%s", command)
 
-	// 写入命令到管道（传给子进程的 fd3）
 	writePipe.WriteString(command)
-
-	// 关闭写端管道，表示写入完成
 	writePipe.Close()
+}
+
+// recordContainerInfo 保存容器信息到本地
+func recordContainerInfo(containerPID int, commandAry []string, containerName string) (string, error) {
+	containerID := randStringBytes(10)
+	currentTime := time.Now().Format("2006-01-02 15:04:05")
+	command := strings.Join(commandAry, "")
+
+	if containerName == "" {
+		containerName = containerID
+	}
+
+	containerInfo := &container.Info{
+		Id:          containerID,
+		Pid:         strconv.Itoa(containerPID),
+		Command:     command,
+		CreatedTime: currentTime,
+		Status:      container.RUNNING,
+		Name:        containerName,
+	}
+
+	containerInfoJson, err := json.Marshal(containerInfo)
+	if err != nil {
+		logrus.Errorf("容器信息序列化失败: %v", err)
+		return "", err
+	}
+
+	dirURL := fmt.Sprintf(container.DefaultInfoLocation, containerName)
+	if err := os.MkdirAll(dirURL, 0622); err != nil {
+		logrus.Errorf("创建目录失败: %v", err)
+		return "", err
+	}
+
+	fileName := path.Join(dirURL, container.ConfigName)
+	file, err := os.Create(fileName)
+	if err != nil {
+		logrus.Errorf("创建文件失败: %v", err)
+		return "", err
+	}
+
+	if _, err := file.WriteString(string(containerInfoJson)); err != nil {
+		logrus.Errorf("写入容器信息失败: %v", err)
+		return "", err
+	}
+
+	return containerName, nil
+}
+
+// randStringBytes 生成指定长度的随机字符串（仅包含数字）
+func randStringBytes(n int) string {
+	letteBytes := []byte("0123456789")
+	rand.Seed(time.Now().UnixNano())
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letteBytes[rand.Intn(len(letteBytes))]
+	}
+	return string(b)
+}
+
+// deleteContainerInfo 删除本地保存的容器信息
+func deleteContainerInfo(containerId string) {
+	dirURL := fmt.Sprintf(container.DefaultInfoLocation, containerId)
+	if err := os.RemoveAll(dirURL); err != nil {
+		logrus.Errorf("删除容器信息目录失败: %v", err)
+	}
 }

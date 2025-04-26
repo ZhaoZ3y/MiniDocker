@@ -3,9 +3,13 @@ package main
 import (
 	"MiniDocker/cgroup/subsystems"
 	"MiniDocker/container"
+	"encoding/json"
 	"fmt"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
+	"io/ioutil"
+	"os"
+	"text/tabwriter"
 )
 
 // runCommand 命令定义：用于创建并运行一个容器
@@ -44,6 +48,11 @@ var runCommand = &cli.Command{
 			Name:  "cpuset",
 			Usage: "设置容器的 CPU 核心限制，例如: -cpuset 0,1",
 		},
+		// --name 参数：用于设置容器的名称
+		&cli.StringFlag{
+			Name:  "name",
+			Usage: "设置容器的名称，例如: --name my_container",
+		},
 	},
 	Action: func(ctx *cli.Context) error {
 		// 参数检查：至少需要一个命令参数（即用户要运行的程序）
@@ -69,13 +78,14 @@ var runCommand = &cli.Command{
 			CpuShare:    ctx.String("cpushare"), // CPU 权重限制
 			CpuSet:      ctx.String("cpuset"),   // CPU 核心限制
 		}
-		log.Infof("createTty: %v, detach: %v", createTty, detach)
-
+		logrus.Infof("createTty: %v", createTty)
+		// 获取容器名称参数
+		containerName := ctx.String("name")
 		// 获取用户指定的挂载目录（形如 /宿主机路径:/容器路径）
 		volume := ctx.String("v")
 
 		// 执行容器创建与运行逻辑
-		Run(createTty, commandArray, volume, resConf)
+		Run(createTty, commandArray, volume, resConf, containerName)
 		return nil
 	},
 }
@@ -87,15 +97,14 @@ var initCommand = &cli.Command{
 	Usage: `初始化容器，创建 namespace 和 cgroups 资源限制，例如: MiniDocker init [容器名称]`,
 	Action: func(ctx *cli.Context) error {
 		// 日志记录：进入容器初始化流程
-		log.Infof("初始化容器")
+		logrus.Infof("初始化容器")
 		// 调用容器的初始化进程
 		err := container.RunContainerInitProcess()
 		return err
 	},
 }
 
-// commitCommand 命令定义：用于提交容器的更改
-// 注意：这个命令是用户手动调用的，用于将当前容器的状态保存为新的镜像
+// commitCommand 命令定义：提交容器的更改为新的镜像
 var commitCommand = &cli.Command{
 	Name:  "commit",
 	Usage: "提交容器的更改",
@@ -103,8 +112,85 @@ var commitCommand = &cli.Command{
 		if ctx.NArg() < 1 {
 			return fmt.Errorf("缺少容器名称参数")
 		}
-		imageName := ctx.Args().Get(0) // 获取容器名称参数
-		commitContainer(imageName)     // 调用提交命令
+		imageName := ctx.Args().Get(0) // 获取容器名称
+		commitContainer(imageName)
 		return nil
 	},
+}
+
+// listCommand 命令定义：列出所有容器
+var listCommand = &cli.Command{
+	Name:  "ps",
+	Usage: "列出所有容器",
+	Action: func(ctx *cli.Context) error {
+		ListContainers()
+		return nil
+	},
+}
+
+// ListContainers 列出当前所有容器及其状态
+func ListContainers() {
+	// 容器信息根目录
+	dirURL := fmt.Sprintf(container.DefaultInfoLocation, "")
+	dirURL = dirURL[:len(dirURL)-1]
+
+	// 读取该目录下的所有子目录（每个容器一个目录）
+	files, err := ioutil.ReadDir(dirURL)
+	if err != nil {
+		logrus.Errorf("读取目录失败: %v", err)
+		return
+	}
+
+	var containers []*container.Info
+	// 遍历每个子目录，解析容器信息
+	for _, file := range files {
+		// 根据配置文件名获取容器信息
+		tmpContainer, err := getContainerInfo(file)
+		if err != nil {
+			logrus.Errorf("获取容器信息失败: %v", err)
+			continue
+		}
+		// 解析容器信息
+		containers = append(containers, tmpContainer)
+	}
+	// 使用表格格式打印容器信息
+	w := tabwriter.NewWriter(os.Stdout, 12, 1, 3, ' ', 0)
+	fmt.Fprint(w, "ID\tNAME\tPID\tSTATUS\tCOMMAND\tCREATE\n")
+	for _, c := range containers {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			c.Id,
+			c.Name,
+			c.Pid,
+			c.Status,
+			c.Command,
+			c.CreatedTime,
+		)
+	}
+	if err := w.Flush(); err != nil {
+		logrus.Errorf("刷新表格失败: %v", err)
+		return
+	}
+}
+
+// getContainerInfo 读取指定容器的配置文件，解析并返回容器信息
+func getContainerInfo(file os.FileInfo) (*container.Info, error) {
+	// 获取文件名
+	containerName := file.Name()
+	// 拼接完整路径
+	configFilePath := fmt.Sprintf(container.DefaultInfoLocation, containerName)
+	configFilePath = configFilePath + container.ConfigName
+	// 读取配置文件内容
+	content, err := ioutil.ReadFile(configFilePath)
+	if err != nil {
+		logrus.Errorf("读取配置文件 %v 失败: %v", configFilePath, err)
+		return nil, err
+	}
+	// 解析 JSON 内容为 Info 结构体
+	var containerInfo container.Info
+	if err := json.Unmarshal(content, &containerInfo); err != nil {
+		logrus.Errorf("解析 JSON 失败: %v", err)
+		return nil, err
+	}
+	// 返回解析后的容器信息
+	return &containerInfo, nil
 }
