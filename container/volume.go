@@ -18,8 +18,6 @@ func NewWorkSpace(rootURL string, mountURL string, volume string) {
 	CreateWriteLayer(rootURL)
 	// 使用 OverlayFS 合并只读层和写层，挂载到 mountURL 上
 	CreateMountPoint(rootURL, mountURL)
-	// 挂载宿主机的 /dev 目录到容器的 /dev 目录
-	MountDev(mountURL)
 	// 如果用户指定了 volume 参数，则解析并挂载宿主机目录
 	if volume != "" {
 		volumeURLs := volumeUrlExtract(volume)
@@ -155,27 +153,6 @@ func PathExists(path string) (bool, error) {
 	return false, err // 其他错误
 }
 
-// MountDev 将宿主机 /dev 挂载到容器的 /dev 中，保证容器中可以访问 /dev/null 等设备。
-func MountDev(mountURL string) {
-	devPath := filepath.Join(mountURL, "dev")
-
-	// 创建 /dev 目录
-	if err := os.MkdirAll(devPath, 0755); err != nil {
-		log.Errorf("创建容器内 /dev 目录失败: %v", err)
-		return
-	}
-
-	// 使用 bind mount 挂载宿主机的 /dev
-	cmd := exec.Command("mount", "--bind", "/dev", devPath)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		log.Errorf("挂载 /dev 到容器失败: %v", err)
-	} else {
-		log.Infof("成功将宿主机 /dev 挂载到容器中")
-	}
-}
-
 // DeleteWorkSpace 删除容器工作空间，包含卸载挂载点和清理写层目录。
 // 参数：
 // - rootURL：容器文件系统的根路径
@@ -201,43 +178,36 @@ func DeleteWorkSpace(rootURL string, mountURL string, volume string) {
 }
 
 // DeleteMountPoint 卸载挂载点并删除挂载点目录。
-// 注意：这个函数签名在你的代码里似乎有两个版本，一个带 volume 一个不带
-// 这里修改不带 volume 的版本，带 volume 的版本也需要类似修改
-func DeleteMountPoint(mountURL string, volume string) error { // 假设这是实际调用的版本
-	log.Infof("开始卸载和清理 %s", mountURL)
+// 参数：
+// - rootURL：容器根路径（本函数中未使用）
+// - mountURL：挂载点路径
+// DeleteMountPoint 卸载挂载点并删除挂载点目录。
+func DeleteMountPoint(rootURL string, mountURL string) {
+	if exist, _ := PathExists(mountURL); !exist {
+		log.Warnf("挂载点 %s 不存在，跳过卸载", mountURL)
+		return
+	}
+	// 确保没有进程占用挂载点
+	cmd := exec.Command("lsof", "+D", mountURL)
+	output, err := cmd.CombinedOutput()
+	if err == nil && len(output) > 0 {
+		log.Warnf("挂载点 %s 被进程占用，无法卸载", mountURL)
+		return
+	}
 
-	// 1. 确保卸载 /dev (调用修改后的 UnmountDev)
-	UnmountDev(mountURL)
-
-	// 2. (如果这个函数也处理 volume) 卸载 volume
-	// UnmountVolume(...) // 假设有这个函数
-
-	// 3. 卸载主挂载点 mountURL
-	// 移除 lsof 检查，因为它本身出错了，而且即使成功，懒卸载通常是更好的选择
-	log.Infof("尝试卸载主挂载点 %s", mountURL)
-	cmd := exec.Command("umount", "-l", mountURL) // 直接尝试懒卸载
+	// 执行 umount 命令卸载挂载点
+	cmd = exec.Command("umount", mountURL)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		// 记录错误，但继续尝试删除目录
-		log.Errorf("懒卸载 %s 失败: %v。继续尝试删除目录。", mountURL, err)
-		// 在某些情况下，即使 umount 报错，目录也可能不再是挂载点了
-		// 或者有时需要一点时间让内核完成清理
-		// 可以考虑在这里加一个短暂的 sleep (time.Sleep(100 * time.Millisecond))
-	} else {
-		log.Infof("成功懒卸载 %s", mountURL)
+		log.Errorf("卸载挂载点 %s 失败: %v", mountURL, err)
+		return
 	}
 
-	// 4. 删除挂载目录
-	log.Infof("尝试删除目录 %s", mountURL)
+	// 删除挂载点目录
 	if err := os.RemoveAll(mountURL); err != nil {
-		// 这里仍然可能失败，特别是如果懒卸载后内核还未完全释放资源
-		log.Errorf("删除挂载目录 %s 失败: %v", mountURL, err)
-		// 可以考虑在这里重试几次
-		return fmt.Errorf("删除挂载目录 %s 失败: %w", mountURL, err)
-	} else {
-		log.Infof("成功删除目录 %s", mountURL)
+		log.Errorf("删除挂载点目录 %s 失败: %v", mountURL, err)
 	}
-
-	return nil
 }
 
 // DeleteMountPointWithVolume 卸载带有数据卷的挂载点，并删除挂载点目录。
@@ -246,36 +216,29 @@ func DeleteMountPoint(mountURL string, volume string) error { // 假设这是实
 // - mountURL：挂载点路径
 // - volumeURLs：长度为2的字符串数组，包含宿主机卷路径和容器内挂载路径
 func DeleteMountPointWithVolume(rootURL string, mountURL string, volumeURLs []string) {
-	containerUrl := filepath.Join(mountURL, volumeURLs[1]) // 使用 filepath.Join 更安全
-	log.Infof("开始卸载和清理带有 Volume 的 %s", mountURL)
-
-	// 1. 卸载 Volume
-	log.Infof("尝试卸载 Volume %s", containerUrl)
-	cmd := exec.Command("umount", "-l", containerUrl) // 优先懒卸载
-	if err := cmd.Run(); err != nil {
-		log.Warnf("卸载 Volume 挂载点 %s 失败 (尝试懒卸载): %v", containerUrl, err)
-	} else {
-		log.Infof("成功懒卸载 Volume %s", containerUrl)
+	// 拼接容器内部卷的完整挂载路径
+	containerUrl := mountURL + volumeURLs[1]
+	if exist, _ := PathExists(containerUrl); !exist {
+		log.Warnf("挂载点 %s 不存在，跳过卸载", containerUrl)
+		return
 	}
-
-	// 2. 卸载 /dev (调用修改后的 UnmountDev)
-	UnmountDev(mountURL)
-
-	// 3. 卸载主挂载点 mountURL
-	log.Infof("尝试卸载主挂载点 %s", mountURL)
-	cmd = exec.Command("umount", "-l", mountURL) // 优先懒卸载
+	// 先卸载容器内部卷的挂载路径
+	cmd := exec.Command("umount", containerUrl)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		log.Errorf("懒卸载主挂载点 %s 失败: %v。继续尝试删除目录。", mountURL, err)
-	} else {
-		log.Infof("成功懒卸载主挂载点 %s", mountURL)
+		log.Errorf("卸载挂载点 %s 失败: %v", containerUrl, err)
 	}
-
-	// 4. 删除挂载点目录
-	log.Infof("尝试删除目录 %s", mountURL)
+	// 再卸载 mountURL 本身
+	cmd = exec.Command("umount", mountURL)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		log.Errorf("卸载挂载点 %s 失败: %v", mountURL, err)
+	}
+	// 删除挂载点目录
 	if err := os.RemoveAll(mountURL); err != nil {
-		log.Errorf("删除挂载点目录 %s 失败: %v", mountURL, err)
-	} else {
-		log.Infof("成功删除目录 %s", mountURL)
+		log.Infof("删除挂载点目录 %s 失败: %v", mountURL, err)
 	}
 }
 
@@ -286,28 +249,5 @@ func DeleteWriteLayer(rootURL string) {
 	writeURL := rootURL + "writeLayer/"
 	if err := os.RemoveAll(writeURL); err != nil {
 		log.Errorf("删除写层目录 %s 失败: %v", writeURL, err)
-	}
-}
-
-// UnmountDev 卸载容器的 /dev
-func UnmountDev(mountURL string) {
-	devPath := filepath.Join(mountURL, "dev")
-	log.Infof("尝试卸载 devPath: %s", devPath) // 添加日志确认路径
-
-	// 优先尝试普通卸载
-	cmd := exec.Command("umount", devPath)
-	err := cmd.Run()
-	if err != nil {
-		log.Warnf("卸载 %s 失败: %v。尝试懒卸载。", devPath, err)
-		// 如果普通卸载失败，坚决尝试懒卸载
-		cmd = exec.Command("umount", "-l", devPath)
-		if err := cmd.Run(); err != nil {
-			// 即使懒卸载也失败了，也只是记录错误，不应阻塞后续清理流程
-			log.Errorf("懒卸载 %s 仍然失败: %v", devPath, err)
-		} else {
-			log.Infof("成功懒卸载 %s", devPath)
-		}
-	} else {
-		log.Infof("成功卸载 %s", devPath)
 	}
 }

@@ -47,12 +47,11 @@ func Run(tty bool, commandArray []string, volume string, res *subsystems.Resourc
 	if tty {
 		// 等待容器进程执行完毕，阻塞等待子进程退出
 		parent.Wait()
+		// 以下是清理工作：
+		mntURL := "/root/mnt"                              // 容器挂载点路径
+		rootURL := "/root"                                 // 容器根目录
+		container.DeleteWorkSpace(rootURL, mntURL, volume) // 删除挂载的工作空间
 	}
-
-	// 以下是清理工作：
-	mntURL := "/root/mnt"                              // 容器挂载点路径
-	rootURL := "/root"                                 // 容器根目录
-	container.DeleteWorkSpace(rootURL, mntURL, volume) // 删除挂载的工作空间
 
 	// 容器运行结束，退出主进程
 	os.Exit(0)
