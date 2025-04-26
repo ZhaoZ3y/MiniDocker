@@ -205,47 +205,41 @@ func DeleteWorkSpace(rootURL string, mountURL string, volume string) {
 // - rootURL：容器根路径（本函数中未使用）
 // - mountURL：挂载点路径
 // DeleteMountPoint 卸载挂载点并删除挂载点目录。
-func DeleteMountPoint(rootURL string, mountURL string) {
-	if exist, _ := PathExists(mountURL); !exist {
-		log.Warnf("挂载点 %s 不存在，跳过卸载", mountURL)
-		return
-	}
-
-	// 卸载 /dev 目录，忽略错误
+func DeleteMountPoint(mountURL string, volume string) error {
+	// 先卸载 /dev（子挂载点）
 	UnmountDev(mountURL)
-
-	// 检查挂载点是否仍然有效
-	cmd := exec.Command("mountpoint", "-q", mountURL)
-	if err := cmd.Run(); err != nil {
-		log.Infof("挂载点 %s 不是一个有效的挂载点，跳过卸载", mountURL)
-		// 直接尝试删除目录
-		if err := os.RemoveAll(mountURL); err != nil {
-			log.Errorf("删除挂载点目录 %s 失败: %v", mountURL, err)
+	// 检查是否被占用
+	cmd := exec.Command("lsof", mountURL)
+	output, err := cmd.Output()
+	if err != nil {
+		log.Warnf("lsof 执行失败，可能未安装或权限不足，尝试直接卸载: %v", err)
+	} else if len(output) != 0 {
+		log.Warnf("%s 被占用，尝试懒卸载", mountURL)
+		cmd = exec.Command("umount", "-l", mountURL)
+		if err := cmd.Run(); err != nil {
+			log.Errorf("懒卸载失败: %v", err)
+			return err
 		}
-		return
-	}
-
-	// 确保没有进程占用挂载点
-	cmd = exec.Command("lsof", "+D", mountURL)
-	output, err := cmd.CombinedOutput()
-	if err == nil && len(output) > 0 {
-		log.Warnf("挂载点 %s 被进程占用，尝试强制卸载", mountURL)
-		cmd = exec.Command("umount", "-f", mountURL)
 	} else {
+		// 正常卸载
 		cmd = exec.Command("umount", mountURL)
+		if err := cmd.Run(); err != nil {
+			log.Warnf("umount %s 失败: %v，尝试懒卸载", mountURL, err)
+			cmd = exec.Command("umount", "-l", mountURL)
+			if err := cmd.Run(); err != nil {
+				log.Errorf("懒卸载失败: %v", err)
+				return err
+			}
+		}
 	}
 
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		log.Errorf("卸载挂载点 %s 失败: %v", mountURL, err)
-		return
-	}
-
-	// 删除挂载点目录
+	// 删除挂载目录
 	if err := os.RemoveAll(mountURL); err != nil {
-		log.Errorf("删除挂载点目录 %s 失败: %v", mountURL, err)
+		log.Errorf("删除挂载目录失败: %v", err)
+		return err
 	}
+
+	return nil
 }
 
 // DeleteMountPointWithVolume 卸载带有数据卷的挂载点，并删除挂载点目录。
@@ -296,39 +290,32 @@ func DeleteWriteLayer(rootURL string) {
 // UnmountDev 卸载容器中挂载的 /dev 目录。
 func UnmountDev(mountURL string) {
 	devPath := filepath.Join(mountURL, "dev")
-	if exist, _ := PathExists(devPath); exist {
-		// 确保 /dev/null 存在，创建一个临时的文件
-		nullPath := filepath.Join(devPath, "null")
-		if _, err := os.Stat(nullPath); os.IsNotExist(err) {
-			// 如果 /dev/null 不存在，创建一个普通文件作为替代
-			f, err := os.Create(nullPath)
-			if err == nil {
-				f.Close()
-				log.Infof("已创建临时的 /dev/null 文件")
-			}
-		}
+	nullPath := filepath.Join(devPath, "null")
 
-		// 先检查是否已挂载
-		cmd := exec.Command("mountpoint", "-q", devPath)
-		if err := cmd.Run(); err == nil {
-			// 确认已挂载，再执行卸载
-			cmd := exec.Command("umount", devPath)
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			if err := cmd.Run(); err != nil {
-				// 如果普通卸载失败，尝试懒卸载
-				log.Warnf("常规卸载容器内 /dev 失败，尝试懒卸载: %v", err)
-				cmd = exec.Command("umount", "-l", devPath)
-				if err := cmd.Run(); err != nil {
-					log.Warnf("懒卸载容器内 /dev 也失败: %v", err)
-				} else {
-					log.Infof("已懒卸载容器内 /dev")
-				}
-			} else {
-				log.Infof("已卸载容器内 /dev")
-			}
-		} else {
-			log.Infof("容器内 /dev 未挂载，无需卸载")
+	// 检查是否真的挂载了 dev
+	if !IsMounted(devPath) {
+		log.Infof("devPath %s 没有被挂载，跳过卸载", devPath)
+		return
+	}
+
+	// 检查 /dev/null 是否存在
+	if _, err := os.Stat(nullPath); os.IsNotExist(err) {
+		log.Warnf("/dev/null 不存在，可能之前挂载失败或已被删除：%v", err)
+	}
+
+	// 卸载 dev
+	cmd := exec.Command("umount", devPath)
+	if err := cmd.Run(); err != nil {
+		log.Warnf("卸载 %s 失败，尝试懒卸载: %v", devPath, err)
+		cmd = exec.Command("umount", "-l", devPath)
+		if err := cmd.Run(); err != nil {
+			log.Errorf("懒卸载 %s 仍失败: %v", devPath, err)
 		}
 	}
+}
+
+func IsMounted(path string) bool {
+	cmd := exec.Command("mountpoint", "-q", path)
+	err := cmd.Run()
+	return err == nil
 }
