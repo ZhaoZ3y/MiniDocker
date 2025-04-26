@@ -255,3 +255,48 @@ func MountVolume(rootURL string, mntURL string, volumeURLs []string) {
 }
 
 ```
+
+## 4.ERRO[0000] 卸载挂载点 /root/mnt 失败: open /dev/null: no such file or directory
+
+很奇怪我的虚拟机内是有这个文件的但是因为某种奇怪的原因没有挂载上似乎是导致了容器在后台运行的时候因为这个错误自动打断了我的容器
+后续我直接尝试直接挂载dev目录文件
+```go
+// MountDev 将宿主机 /dev 挂载到容器的 /dev 中，保证容器中可以访问 /dev/null 等设备。
+func MountDev(mountURL string) {
+	devPath := filepath.Join(mountURL, "dev")
+
+	// 创建 /dev 目录
+	if err := os.MkdirAll(devPath, 0755); err != nil {
+		log.Errorf("创建容器内 /dev 目录失败: %v", err)
+		return
+	}
+
+	// 使用 bind mount 挂载宿主机的 /dev
+	cmd := exec.Command("mount", "--bind", "/dev", devPath)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		log.Errorf("挂载 /dev 到容器失败: %v", err)
+	} else {
+		log.Infof("成功将宿主机 /dev 挂载到容器中")
+	}
+}
+
+```
+```go
+// UnmountDev 卸载容器中挂载的 /dev 目录。
+func UnmountDev(mountURL string) {
+	devPath := filepath.Join(mountURL, "dev")
+	if exist, _ := PathExists(devPath); exist {
+		cmd := exec.Command("umount", devPath)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			log.Warnf("卸载容器内 /dev 失败: %v", err)
+		} else {
+			log.Infof("已卸载容器内 /dev")
+		}
+	}
+}
+
+```

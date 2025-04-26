@@ -18,6 +18,8 @@ func NewWorkSpace(rootURL string, mountURL string, volume string) {
 	CreateWriteLayer(rootURL)
 	// 使用 OverlayFS 合并只读层和写层，挂载到 mountURL 上
 	CreateMountPoint(rootURL, mountURL)
+	// 挂载宿主机的 /dev 目录到容器的 /dev 目录
+	MountDev(mountURL)
 	// 如果用户指定了 volume 参数，则解析并挂载宿主机目录
 	if volume != "" {
 		volumeURLs := volumeUrlExtract(volume)
@@ -153,6 +155,27 @@ func PathExists(path string) (bool, error) {
 	return false, err // 其他错误
 }
 
+// MountDev 将宿主机 /dev 挂载到容器的 /dev 中，保证容器中可以访问 /dev/null 等设备。
+func MountDev(mountURL string) {
+	devPath := filepath.Join(mountURL, "dev")
+
+	// 创建 /dev 目录
+	if err := os.MkdirAll(devPath, 0755); err != nil {
+		log.Errorf("创建容器内 /dev 目录失败: %v", err)
+		return
+	}
+
+	// 使用 bind mount 挂载宿主机的 /dev
+	cmd := exec.Command("mount", "--bind", "/dev", devPath)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		log.Errorf("挂载 /dev 到容器失败: %v", err)
+	} else {
+		log.Infof("成功将宿主机 /dev 挂载到容器中")
+	}
+}
+
 // DeleteWorkSpace 删除容器工作空间，包含卸载挂载点和清理写层目录。
 // 参数：
 // - rootURL：容器文件系统的根路径
@@ -194,6 +217,8 @@ func DeleteMountPoint(rootURL string, mountURL string) {
 		log.Warnf("挂载点 %s 被进程占用，无法卸载", mountURL)
 		return
 	}
+	// 卸载 /dev 目录
+	UnmountDev(mountURL)
 
 	// 执行 umount 命令卸载挂载点
 	cmd = exec.Command("umount", mountURL)
@@ -222,6 +247,9 @@ func DeleteMountPointWithVolume(rootURL string, mountURL string, volumeURLs []st
 		log.Warnf("挂载点 %s 不存在，跳过卸载", containerUrl)
 		return
 	}
+	// 卸载 /dev 目录
+	UnmountDev(mountURL)
+
 	// 先卸载容器内部卷的挂载路径
 	cmd := exec.Command("umount", containerUrl)
 	cmd.Stdout = os.Stdout
@@ -249,5 +277,20 @@ func DeleteWriteLayer(rootURL string) {
 	writeURL := rootURL + "writeLayer/"
 	if err := os.RemoveAll(writeURL); err != nil {
 		log.Errorf("删除写层目录 %s 失败: %v", writeURL, err)
+	}
+}
+
+// UnmountDev 卸载容器中挂载的 /dev 目录。
+func UnmountDev(mountURL string) {
+	devPath := filepath.Join(mountURL, "dev")
+	if exist, _ := PathExists(devPath); exist {
+		cmd := exec.Command("umount", devPath)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			log.Warnf("卸载容器内 /dev 失败: %v", err)
+		} else {
+			log.Infof("已卸载容器内 /dev")
+		}
 	}
 }
