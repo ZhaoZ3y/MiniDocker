@@ -300,3 +300,97 @@ func UnmountDev(mountURL string) {
 }
 
 ```
+后续还是不行我就在卸载前检查是否存在
+```go
+func DeleteMountPoint(rootURL string, mountURL string) {
+    if exist, _ := PathExists(mountURL); !exist {
+        log.Warnf("挂载点 %s 不存在，跳过卸载", mountURL)
+        return
+    }
+
+    // 卸载 /dev 目录，忽略错误
+    UnmountDev(mountURL)
+
+    // 使用不依赖 /dev/null 的方式检查挂载点
+    // 使用 cat /proc/mounts 来检查是否挂载，而不是 mountpoint 命令
+    cmd := exec.Command("grep", mountURL, "/proc/mounts")
+    if output, err := cmd.CombinedOutput(); err != nil || len(output) == 0 {
+        log.Infof("挂载点 %s 不是一个有效的挂载点，跳过卸载", mountURL)
+        // 直接尝试删除目录
+        if err := os.RemoveAll(mountURL); err != nil {
+            log.Errorf("删除挂载点目录 %s 失败: %v", mountURL, err)
+        }
+        return
+    }
+
+    // 使用不依赖 /dev/null 的方式检查进程占用
+    // 避免使用 lsof 命令，它可能依赖 /dev/null
+    // 可以尝试直接强制卸载
+    cmd = exec.Command("umount", "-f", mountURL)
+    cmd.Stdout = os.Stdout
+    cmd.Stderr = os.Stderr
+    if err := cmd.Run(); err != nil {
+        // 如果强制卸载失败，尝试 lazy 卸载
+        log.Warnf("强制卸载挂载点 %s 失败，尝试 lazy 卸载", mountURL)
+        cmd = exec.Command("umount", "-l", mountURL)
+        cmd.Stdout = os.Stdout
+        cmd.Stderr = os.Stderr
+        if err := cmd.Run(); err != nil {
+            log.Errorf("卸载挂载点 %s 失败: %v", mountURL, err)
+            return
+        }
+    }
+
+    // 删除挂载点目录
+    if err := os.RemoveAll(mountURL); err != nil {
+        log.Errorf("删除挂载点目录 %s 失败: %v", mountURL, err)
+    }
+}
+```
+
+```go
+func DeleteMountPointWithVolume(rootURL string, mountURL string, volumeURLs []string) {
+    // 拼接容器内部卷的完整挂载路径
+    containerUrl := mountURL + volumeURLs[1]
+    if exist, _ := PathExists(containerUrl); !exist {
+        log.Warnf("挂载点 %s 不存在，跳过卸载", containerUrl)
+        return
+    }
+    
+    // 卸载 /dev 目录
+    UnmountDev(mountURL)
+
+    // 先卸载容器内部卷的挂载路径
+    cmd := exec.Command("umount", "-f", containerUrl)
+    cmd.Stdout = os.Stdout
+    cmd.Stderr = os.Stderr
+    if err := cmd.Run(); err != nil {
+        // 尝试 lazy 卸载
+        cmd = exec.Command("umount", "-l", containerUrl)
+        cmd.Stdout = os.Stdout
+        cmd.Stderr = os.Stderr
+        if err := cmd.Run(); err != nil {
+            log.Errorf("卸载挂载点 %s 失败: %v", containerUrl, err)
+        }
+    }
+    
+    // 再卸载 mountURL 本身
+    cmd = exec.Command("umount", "-f", mountURL)
+    cmd.Stdout = os.Stdout
+    cmd.Stderr = os.Stderr
+    if err := cmd.Run(); err != nil {
+        // 尝试 lazy 卸载
+        cmd = exec.Command("umount", "-l", mountURL)
+        cmd.Stdout = os.Stdout
+        cmd.Stderr = os.Stderr
+        if err := cmd.Run(); err != nil {
+            log.Errorf("卸载挂载点 %s 失败: %v", mountURL, err)
+        }
+    }
+    
+    // 删除挂载点目录
+    if err := os.RemoveAll(mountURL); err != nil {
+        log.Infof("删除挂载点目录 %s 失败: %v", mountURL, err)
+    }
+}
+```
