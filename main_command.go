@@ -61,3 +61,18 @@ var initCommand = &cli.Command{
 		return err
 	},
 }
+
+// commitCommand 命令定义：用于提交容器的更改
+// 注意：这个命令是用户手动调用的，用于将当前容器的状态保存为新的镜像
+var commitCommand = &cli.Command{
+	Name:  "commit",
+	Usage: "提交容器的更改",
+	Action: func(ctx *cli.Context) error {
+		if ctx.NArg() < 1 {
+			return fmt.Errorf("缺少容器名称参数")
+		}
+		imageName := ctx.Args().Get(0) // 获取容器名称参数
+		commitContainer(imageName)     // 调用提交命令
+		return nil
+	},
+}

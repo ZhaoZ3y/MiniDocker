@@ -22,7 +22,7 @@ func FindCgroupMountpoint(subsystem string) string {
 	// 按行读取 mountinfo
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		txt := scanner.Text() // 获取每一行的挂载信息
+		txt := scanner.Text()             // 获取每一行的挂载信息
 		fields := strings.Split(txt, " ") // 将每行信息按空格拆分为字段
 
 		// 遍历字段中最后一列，查找包含指定子系统名的挂载项
@@ -54,7 +54,7 @@ func GetCgroupPath(subsystem string, cgroupPath string, autoCreate bool) (string
 	if _, err := os.Stat(path.Join(cgroupRoot, cgroupPath)); err == nil || (autoCreate && os.IsNotExist(err)) {
 		// 如果路径不存在且允许自动创建，则创建该 cgroup 路径
 		if os.IsNotExist(err) {
-			if err := os.Mkdir(path.Join(cgroupRoot, cgroupPath), 0755); err == nil {
+			if err := os.MkdirAll(path.Join(cgroupRoot, cgroupPath), 0755); err == nil {
 				// 创建成功，返回路径
 			} else {
 				return "", fmt.Errorf("创建 cgroup 失败: %v", err)

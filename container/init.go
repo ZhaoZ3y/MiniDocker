@@ -71,7 +71,7 @@ func pivotRoot(root string) error {
 	// 2. 创建一个 .pivot_root 目录用于存放旧的 root，
 	// pivot_root 系统调用要求第二个参数必须在新的 root 目录内部
 	pivotDir := filepath.Join(root, ".pivot_root")
-	if err := os.Mkdir(pivotDir, 0777); err != nil {
+	if err := os.MkdirAll(pivotDir, 0777); err != nil {
 		return fmt.Errorf("创建 pivot_root 目录失败: %v", err)
 	}
 

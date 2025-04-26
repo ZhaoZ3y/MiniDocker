@@ -96,7 +96,7 @@ func CreateReadOnlyLayer(rootURL string) {
 
 	// 如果 busybox 目录不存在，创建目录并解压
 	if !exist {
-		if err := os.Mkdir(busyboxURL, 0777); err != nil {
+		if err := os.MkdirAll(busyboxURL, 0777); err != nil {
 			log.Errorf("创建目录 %s 失败: %v", busyboxURL, err)
 		}
 		if _, err := exec.Command("tar", "-xvf", busyboxTarURL, "-C", busyboxURL).CombinedOutput(); err != nil {
@@ -108,14 +108,14 @@ func CreateReadOnlyLayer(rootURL string) {
 // CreateWriteLayer 创建写层目录，包括 overlay 所需的 upper 和 work 子目录。
 func CreateWriteLayer(rootURL string) {
 	writeURL := rootURL + "writeLayer/"
-	if err := os.Mkdir(writeURL, 0777); err != nil && !os.IsExist(err) {
+	if err := os.MkdirAll(writeURL, 0777); err != nil && !os.IsExist(err) {
 		log.Errorf("创建写层目录 %s 失败: %v", writeURL, err)
 	}
 }
 
 // CreateMountPoint 使用 OverlayFS 将只读层和写层挂载到挂载点目录。
 func CreateMountPoint(rootURL string, mountURL string) {
-	if err := os.Mkdir(mountURL, 0777); err != nil && !os.IsExist(err) {
+	if err := os.MkdirAll(mountURL, 0777); err != nil && !os.IsExist(err) {
 		log.Errorf("创建挂载点目录 %s 失败: %v", mountURL, err)
 	}
 
@@ -124,10 +124,10 @@ func CreateMountPoint(rootURL string, mountURL string) {
 	workDir := rootURL + "writeLayer/work"   // OverlayFS 工作目录
 
 	// 创建 upper 和 work 子目录
-	if err := os.Mkdir(upperDir, 0777); err != nil {
+	if err := os.MkdirAll(upperDir, 0777); err != nil && !os.IsExist(err) {
 		log.Errorf("创建 upper 目录失败: %v", err)
 	}
-	if err := os.Mkdir(workDir, 0777); err != nil {
+	if err := os.MkdirAll(workDir, 0777); err != nil && !os.IsExist(err) {
 		log.Errorf("创建 work 目录失败: %v", err)
 	}
 
@@ -183,6 +183,10 @@ func DeleteWorkSpace(rootURL string, mountURL string, volume string) {
 // - mountURL：挂载点路径
 // DeleteMountPoint 卸载挂载点并删除挂载点目录。
 func DeleteMountPoint(rootURL string, mountURL string) {
+	if exist, _ := PathExists(mountURL); !exist {
+		log.Warnf("挂载点 %s 不存在，跳过卸载", mountURL)
+		return
+	}
 	// 确保没有进程占用挂载点
 	cmd := exec.Command("lsof", "+D", mountURL)
 	output, err := cmd.CombinedOutput()
@@ -214,6 +218,10 @@ func DeleteMountPoint(rootURL string, mountURL string) {
 func DeleteMountPointWithVolume(rootURL string, mountURL string, volumeURLs []string) {
 	// 拼接容器内部卷的完整挂载路径
 	containerUrl := mountURL + volumeURLs[1]
+	if exist, _ := PathExists(containerUrl); !exist {
+		log.Warnf("挂载点 %s 不存在，跳过卸载", containerUrl)
+		return
+	}
 	// 先卸载容器内部卷的挂载路径
 	cmd := exec.Command("umount", containerUrl)
 	cmd.Stdout = os.Stdout

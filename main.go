@@ -18,8 +18,9 @@ func main() {
 		Name:  "MiniDocker", // 应用名称
 		Usage: usage,        // 应用说明
 		Commands: []*cli.Command{
-			initCommand, // 初始化容器（由容器进程自动调用）
-			runCommand,  // 创建并运行容器（用户调用）
+			initCommand,   // 初始化容器（由容器进程自动调用）
+			runCommand,    // 创建并运行容器（用户调用）
+			commitCommand, // 提交容器（用户调用）
 		},
 		// 在执行命令前统一设置日志格式和输出目标
 		Before: func(c *cli.Context) error {
