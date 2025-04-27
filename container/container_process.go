@@ -1,7 +1,7 @@
 package container
 
 import (
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"os"
 	"os/exec"
 	"syscall"
@@ -34,17 +34,17 @@ func NewParentProcess(tty bool, volume string) (*exec.Cmd, *os.File) {
 	// 创建匿名管道：用于父子进程之间通信（传参数或控制信号）
 	readPipe, writePipe, err := NewPipe()
 	if err != nil {
-		log.Errorf("管道创建失败: %v", err)
+		logrus.Errorf("管道创建失败: %v", err)
 		return nil, nil
 	}
 
-	// 获取当前程序的可执行路径，准备以 "init" 子命令重新执行自己（类似 fork/exec 模式）
-	selfPath, err := os.Executable()
+	// 获取当前进程的路径（init 进程）
+	initCmd, err := os.Readlink("/proc/self/exe")
 	if err != nil {
-		log.Fatalf("获取自身路径失败: %v", err)
+		logrus.Errorf("获取 init 进程路径失败: %v", err)
+		return nil, nil
 	}
-
-	cmd := exec.Command(selfPath, "init") // 子进程会执行 "init" 分支逻辑
+	cmd := exec.Command(initCmd, "init")
 
 	// 设置命名空间隔离（关键点：实现容器隔离）
 	cmd.SysProcAttr = &syscall.SysProcAttr{
