@@ -2,11 +2,13 @@ package container
 
 import (
 	"fmt"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/sys/unix"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // NewWorkSpace 创建容器的工作空间，包括只读层、写层、挂载点以及用户指定的挂载目录。
@@ -24,9 +26,9 @@ func NewWorkSpace(rootURL string, mountURL string, volume string) {
 		volumeURLs := volumeUrlExtract(volume)
 		if len(volumeURLs) == 2 && volumeURLs[0] != "" && volumeURLs[1] != "" {
 			MountVolume(rootURL, mountURL, volumeURLs)
-			log.Infof("挂载宿主机目录 %s", volumeURLs)
+			logrus.Infof("挂载宿主机目录 %s", volumeURLs)
 		} else {
-			log.Infof("宿主机目录格式错误，正确格式为 /host/path:/container/path")
+			logrus.Infof("宿主机目录格式错误，正确格式为 /host/path:/container/path")
 		}
 	}
 }
@@ -45,7 +47,7 @@ func MountVolume(rootURL string, mountURL string, volumeURLs []string) {
 
 	// 确保宿主机目录存在
 	if err := os.MkdirAll(parentURL, 0777); err != nil && !os.IsExist(err) {
-		log.Errorf("创建宿主机目录 %s 失败: %v", parentURL, err)
+		logrus.Errorf("创建宿主机目录 %s 失败: %v", parentURL, err)
 	}
 
 	containerURL := volumeURLs[1] // 容器内目录路径 /containerVolume
@@ -59,13 +61,13 @@ func MountVolume(rootURL string, mountURL string, volumeURLs []string) {
 
 	// 创建容器内挂载目录
 	if err := os.MkdirAll(containerVolumeURL, 0777); err != nil && !os.IsExist(err) {
-		log.Errorf("创建容器目录 %s 失败: %v", containerVolumeURL, err)
+		logrus.Errorf("创建容器目录 %s 失败: %v", containerVolumeURL, err)
 	}
 
 	// 确保要挂载的宿主机目录是存在且可用的
 	fileInfo, err := os.Stat(parentURL)
 	if err != nil || !fileInfo.IsDir() {
-		log.Errorf("宿主机目录 %s 不存在或不是一个目录: %v", parentURL, err)
+		logrus.Errorf("宿主机目录 %s 不存在或不是一个目录: %v", parentURL, err)
 		return
 	}
 
@@ -74,14 +76,14 @@ func MountVolume(rootURL string, mountURL string, volumeURLs []string) {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		log.Errorf("挂载宿主机目录 %s 到容器目录 %s 失败: %v", parentURL, containerVolumeURL, err)
+		logrus.Errorf("挂载宿主机目录 %s 到容器目录 %s 失败: %v", parentURL, containerVolumeURL, err)
 	} else {
-		log.Infof("成功挂载宿主机目录 %s 到容器目录 %s", parentURL, containerVolumeURL)
+		logrus.Infof("成功挂载宿主机目录 %s 到容器目录 %s", parentURL, containerVolumeURL)
 
 		// 验证挂载是否正确
 		verifyCmd := exec.Command("findmnt", "--output", "SOURCE,TARGET", containerVolumeURL)
 		output, _ := verifyCmd.CombinedOutput()
-		log.Infof("挂载详情: %s", string(output))
+		logrus.Infof("挂载详情: %s", string(output))
 	}
 }
 
@@ -92,16 +94,16 @@ func CreateReadOnlyLayer(rootURL string) {
 
 	exist, err := PathExists(busyboxURL)
 	if err != nil {
-		log.Errorf("判断目录 %s 是否存在失败: %v", busyboxURL, err)
+		logrus.Errorf("判断目录 %s 是否存在失败: %v", busyboxURL, err)
 	}
 
 	// 如果 busybox 目录不存在，创建目录并解压
 	if !exist {
 		if err := os.MkdirAll(busyboxURL, 0777); err != nil {
-			log.Errorf("创建目录 %s 失败: %v", busyboxURL, err)
+			logrus.Errorf("创建目录 %s 失败: %v", busyboxURL, err)
 		}
 		if _, err := exec.Command("tar", "-xvf", busyboxTarURL, "-C", busyboxURL).CombinedOutput(); err != nil {
-			log.Errorf("解压目录 %s 失败: %v", busyboxURL, err)
+			logrus.Errorf("解压目录 %s 失败: %v", busyboxURL, err)
 		}
 	}
 }
@@ -110,14 +112,14 @@ func CreateReadOnlyLayer(rootURL string) {
 func CreateWriteLayer(rootURL string) {
 	writeURL := rootURL + "writeLayer/"
 	if err := os.MkdirAll(writeURL, 0777); err != nil && !os.IsExist(err) {
-		log.Errorf("创建写层目录 %s 失败: %v", writeURL, err)
+		logrus.Errorf("创建写层目录 %s 失败: %v", writeURL, err)
 	}
 }
 
 // CreateMountPoint 使用 OverlayFS 将只读层和写层挂载到挂载点目录。
 func CreateMountPoint(rootURL string, mountURL string) {
 	if err := os.MkdirAll(mountURL, 0777); err != nil && !os.IsExist(err) {
-		log.Errorf("创建挂载点目录 %s 失败: %v", mountURL, err)
+		logrus.Errorf("创建挂载点目录 %s 失败: %v", mountURL, err)
 	}
 
 	lowerDir := rootURL + "busybox"          // 只读层目录
@@ -126,10 +128,10 @@ func CreateMountPoint(rootURL string, mountURL string) {
 
 	// 创建 upper 和 work 子目录
 	if err := os.MkdirAll(upperDir, 0777); err != nil && !os.IsExist(err) {
-		log.Errorf("创建 upper 目录失败: %v", err)
+		logrus.Errorf("创建 upper 目录失败: %v", err)
 	}
 	if err := os.MkdirAll(workDir, 0777); err != nil && !os.IsExist(err) {
-		log.Errorf("创建 work 目录失败: %v", err)
+		logrus.Errorf("创建 work 目录失败: %v", err)
 	}
 
 	// 构造 overlay 挂载参数，并执行 mount 命令
@@ -138,7 +140,7 @@ func CreateMountPoint(rootURL string, mountURL string) {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		log.Errorf("挂载 OverlayFS 失败: %v", err)
+		logrus.Errorf("挂载 OverlayFS 失败: %v", err)
 	}
 }
 
@@ -159,48 +161,51 @@ func CreateDevices(mountURL string) {
 	// 创建 /dev 目录
 	devDir := filepath.Join(mountURL, "dev")
 	if err := os.MkdirAll(devDir, 0755); err != nil {
-		log.Errorf("创建 /dev 目录失败: %v", err)
+		logrus.Errorf("创建 /dev 目录失败: %v", err)
 		return
 	}
 
-	// 创建 /dev/null 设备
-	nullDevice := filepath.Join(devDir, "null")
-	if err := exec.Command("mknod", nullDevice, "c", "1", "3").Run(); err != nil {
-		log.Errorf("创建 /dev/null 设备失败: %v", err)
-	}
-	if err := os.Chmod(nullDevice, 0666); err != nil {
-		log.Errorf("修改 /dev/null 权限失败: %v", err)
-	}
-
-	// 创建其他基本设备文件
-	// /dev/zero
-	zeroDevice := filepath.Join(devDir, "zero")
-	if err := exec.Command("mknod", zeroDevice, "c", "1", "5").Run(); err != nil {
-		log.Errorf("创建 /dev/zero 设备失败: %v", err)
-	}
-	if err := os.Chmod(zeroDevice, 0666); err != nil {
-		log.Errorf("修改 /dev/zero 权限失败: %v", err)
+	// 创建 /dev/null - 使用 syscall.Mknod 替代 exec.Command
+	nullPath := filepath.Join(devDir, "null")
+	if err := syscall.Mknod(nullPath, syscall.S_IFCHR|uint32(0666), int(unix.Mkdev(1, 3))); err != nil {
+		logrus.Errorf("使用 syscall 创建 /dev/null 设备失败: %v", err)
+	} else {
+		if err := os.Chmod(nullPath, 0666); err != nil {
+			logrus.Errorf("修改 /dev/null 权限失败: %v", err)
+		}
 	}
 
-	// /dev/random
-	randomDevice := filepath.Join(devDir, "random")
-	if err := exec.Command("mknod", randomDevice, "c", "1", "8").Run(); err != nil {
-		log.Errorf("创建 /dev/random 设备失败: %v", err)
-	}
-	if err := os.Chmod(randomDevice, 0666); err != nil {
-		log.Errorf("修改 /dev/random 权限失败: %v", err)
-	}
-
-	// /dev/urandom
-	urandomDevice := filepath.Join(devDir, "urandom")
-	if err := exec.Command("mknod", urandomDevice, "c", "1", "9").Run(); err != nil {
-		log.Errorf("创建 /dev/urandom 设备失败: %v", err)
-	}
-	if err := os.Chmod(urandomDevice, 0666); err != nil {
-		log.Errorf("修改 /dev/urandom 权限失败: %v", err)
+	// 创建 /dev/zero
+	zeroPath := filepath.Join(devDir, "zero")
+	if err := syscall.Mknod(zeroPath, syscall.S_IFCHR|uint32(0666), int(unix.Mkdev(1, 5))); err != nil {
+		logrus.Errorf("使用 syscall 创建 /dev/zero 设备失败: %v", err)
+	} else {
+		if err := os.Chmod(zeroPath, 0666); err != nil {
+			logrus.Errorf("修改 /dev/zero 权限失败: %v", err)
+		}
 	}
 
-	log.Infof("基本设备文件创建完成")
+	// 创建 /dev/random
+	randomPath := filepath.Join(devDir, "random")
+	if err := syscall.Mknod(randomPath, syscall.S_IFCHR|uint32(0666), int(unix.Mkdev(1, 8))); err != nil {
+		logrus.Errorf("使用 syscall 创建 /dev/random 设备失败: %v", err)
+	} else {
+		if err := os.Chmod(randomPath, 0666); err != nil {
+			logrus.Errorf("修改 /dev/random 权限失败: %v", err)
+		}
+	}
+
+	// 创建 /dev/urandom
+	urandomPath := filepath.Join(devDir, "urandom")
+	if err := syscall.Mknod(urandomPath, syscall.S_IFCHR|uint32(0666), int(unix.Mkdev(1, 9))); err != nil {
+		logrus.Errorf("使用 syscall 创建 /dev/urandom 设备失败: %v", err)
+	} else {
+		if err := os.Chmod(urandomPath, 0666); err != nil {
+			logrus.Errorf("修改 /dev/urandom 权限失败: %v", err)
+		}
+	}
+
+	logrus.Infof("基本设备文件创建完成")
 }
 
 // DeleteWorkSpace 删除容器工作空间，包含卸载挂载点和清理写层目录。
@@ -234,14 +239,14 @@ func DeleteWorkSpace(rootURL string, mountURL string, volume string) {
 // DeleteMountPoint 卸载挂载点并删除挂载点目录。
 func DeleteMountPoint(rootURL string, mountURL string) {
 	if exist, _ := PathExists(mountURL); !exist {
-		log.Warnf("挂载点 %s 不存在，跳过卸载", mountURL)
+		logrus.Warnf("挂载点 %s 不存在，跳过卸载", mountURL)
 		return
 	}
 	// 确保没有进程占用挂载点
 	cmd := exec.Command("lsof", "+D", mountURL)
 	output, err := cmd.CombinedOutput()
 	if err == nil && len(output) > 0 {
-		log.Warnf("挂载点 %s 被进程占用，无法卸载", mountURL)
+		logrus.Warnf("挂载点 %s 被进程占用，无法卸载", mountURL)
 		return
 	}
 
@@ -250,13 +255,13 @@ func DeleteMountPoint(rootURL string, mountURL string) {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		log.Errorf("卸载挂载点 %s 失败: %v", mountURL, err)
+		logrus.Errorf("卸载挂载点 %s 失败: %v", mountURL, err)
 		return
 	}
 
 	// 删除挂载点目录
 	if err := os.RemoveAll(mountURL); err != nil {
-		log.Errorf("删除挂载点目录 %s 失败: %v", mountURL, err)
+		logrus.Errorf("删除挂载点目录 %s 失败: %v", mountURL, err)
 	}
 }
 
@@ -269,7 +274,7 @@ func DeleteMountPointWithVolume(rootURL string, mountURL string, volumeURLs []st
 	// 拼接容器内部卷的完整挂载路径
 	containerUrl := mountURL + volumeURLs[1]
 	if exist, _ := PathExists(containerUrl); !exist {
-		log.Warnf("挂载点 %s 不存在，跳过卸载", containerUrl)
+		logrus.Warnf("挂载点 %s 不存在，跳过卸载", containerUrl)
 		return
 	}
 	// 先卸载容器内部卷的挂载路径
@@ -277,18 +282,18 @@ func DeleteMountPointWithVolume(rootURL string, mountURL string, volumeURLs []st
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		log.Errorf("卸载挂载点 %s 失败: %v", containerUrl, err)
+		logrus.Errorf("卸载挂载点 %s 失败: %v", containerUrl, err)
 	}
 	// 再卸载 mountURL 本身
 	cmd = exec.Command("umount", mountURL)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		log.Errorf("卸载挂载点 %s 失败: %v", mountURL, err)
+		logrus.Errorf("卸载挂载点 %s 失败: %v", mountURL, err)
 	}
 	// 删除挂载点目录
 	if err := os.RemoveAll(mountURL); err != nil {
-		log.Infof("删除挂载点目录 %s 失败: %v", mountURL, err)
+		logrus.Infof("删除挂载点目录 %s 失败: %v", mountURL, err)
 	}
 }
 
@@ -298,6 +303,6 @@ func DeleteMountPointWithVolume(rootURL string, mountURL string, volumeURLs []st
 func DeleteWriteLayer(rootURL string) {
 	writeURL := rootURL + "writeLayer/"
 	if err := os.RemoveAll(writeURL); err != nil {
-		log.Errorf("删除写层目录 %s 失败: %v", writeURL, err)
+		logrus.Errorf("删除写层目录 %s 失败: %v", writeURL, err)
 	}
 }

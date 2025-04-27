@@ -2,8 +2,8 @@ package cgroup
 
 import (
 	"MiniDocker/cgroup/subsystems"
-	"MiniDocker/container"
 	"github.com/sirupsen/logrus"
+	"os"
 )
 
 // CgroupManager 管理cgroup的结构体
@@ -39,7 +39,7 @@ func (c *CgroupManager) Set(res *subsystems.ResourceConfig) error {
 // Destroy 释放cgroup
 func (c *CgroupManager) Destroy() error {
 	// 先检查 cgroup 是否存在
-	if exists, _ := container.PathExists(c.Path); !exists {
+	if exists, _ := PathExists(c.Path); !exists {
 		logrus.Warnf("cgroup %s 不存在，跳过删除", c.Path)
 		return nil
 	}
@@ -49,4 +49,16 @@ func (c *CgroupManager) Destroy() error {
 		}
 	}
 	return nil
+}
+
+// PathExists 检查路径是否存在
+func PathExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil // 路径存在
+	}
+	if os.IsNotExist(err) {
+		return false, nil // 路径不存在
+	}
+	return false, err // 其他错误
 }
