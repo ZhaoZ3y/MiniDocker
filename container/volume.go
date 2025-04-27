@@ -14,14 +14,32 @@ import (
 // NewWorkSpace 创建容器的工作空间，包括只读层、写层、挂载点以及用户指定的挂载目录。
 // rootURL 是容器工作空间的根目录，mountURL 是容器最终挂载点（容器运行时根目录）。
 func NewWorkSpace(rootURL string, mountURL string, volume string) {
+	// 确保根目录存在
+	if err := os.MkdirAll(rootURL, 0777); err != nil && !os.IsExist(err) {
+		logrus.Errorf("创建根目录 %s 失败: %v", rootURL, err)
+		return
+	}
 	// 解压 busybox 镜像作为只读层
 	CreateReadOnlyLayer(rootURL)
 	// 创建写层目录，包括 upper 和 work 目录（OverlayFS 结构要求）
 	CreateWriteLayer(rootURL)
+	// 创建挂载点目录
+	if err := os.MkdirAll(mountURL, 0777); err != nil && !os.IsExist(err) {
+		logrus.Errorf("创建挂载点目录 %s 失败: %v", mountURL, err)
+		return
+	}
 	// 如果用户指定了 volume 参数，则解析并挂载宿主机目录
 	CreateDevices(mountURL)
 	// 使用 OverlayFS 合并只读层和写层，挂载到 mountURL 上
-	CreateMountPoint(rootURL, mountURL)
+	// 挂载 OverlayFS
+	if mountSuccess := CreateMountPoint(rootURL, mountURL); mountSuccess {
+		// 挂载成功后再次创建设备文件（确保挂载后设备文件存在）
+		CreateDevices(mountURL)
+	} else {
+		// 处理挂载失败
+		logrus.Errorf("OverlayFS挂载失败，无法继续")
+		return
+	}
 	if volume != "" {
 		volumeURLs := volumeUrlExtract(volume)
 		if len(volumeURLs) == 2 && volumeURLs[0] != "" && volumeURLs[1] != "" {
@@ -116,10 +134,10 @@ func CreateWriteLayer(rootURL string) {
 	}
 }
 
-// CreateMountPoint 使用 OverlayFS 将只读层和写层挂载到挂载点目录。
-func CreateMountPoint(rootURL string, mountURL string) {
+func CreateMountPoint(rootURL string, mountURL string) bool {
 	if err := os.MkdirAll(mountURL, 0777); err != nil && !os.IsExist(err) {
 		logrus.Errorf("创建挂载点目录 %s 失败: %v", mountURL, err)
+		return false
 	}
 
 	lowerDir := rootURL + "busybox"          // 只读层目录
@@ -129,9 +147,11 @@ func CreateMountPoint(rootURL string, mountURL string) {
 	// 创建 upper 和 work 子目录
 	if err := os.MkdirAll(upperDir, 0777); err != nil && !os.IsExist(err) {
 		logrus.Errorf("创建 upper 目录失败: %v", err)
+		return false
 	}
 	if err := os.MkdirAll(workDir, 0777); err != nil && !os.IsExist(err) {
 		logrus.Errorf("创建 work 目录失败: %v", err)
+		return false
 	}
 
 	// 构造 overlay 挂载参数，并执行 mount 命令
@@ -141,7 +161,10 @@ func CreateMountPoint(rootURL string, mountURL string) {
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		logrus.Errorf("挂载 OverlayFS 失败: %v", err)
+		return false
 	}
+
+	return true
 }
 
 // PathExists 判断指定路径是否存在。
