@@ -18,10 +18,10 @@ func NewWorkSpace(rootURL string, mountURL string, volume string) {
 	CreateReadOnlyLayer(rootURL)
 	// 创建写层目录，包括 upper 和 work 目录（OverlayFS 结构要求）
 	CreateWriteLayer(rootURL)
-	// 使用 OverlayFS 合并只读层和写层，挂载到 mountURL 上
-	CreateMountPoint(rootURL, mountURL)
 	// 如果用户指定了 volume 参数，则解析并挂载宿主机目录
 	CreateDevices(mountURL)
+	// 使用 OverlayFS 合并只读层和写层，挂载到 mountURL 上
+	CreateMountPoint(rootURL, mountURL)
 	if volume != "" {
 		volumeURLs := volumeUrlExtract(volume)
 		if len(volumeURLs) == 2 && volumeURLs[0] != "" && volumeURLs[1] != "" {
@@ -160,14 +160,14 @@ func PathExists(path string) (bool, error) {
 func CreateDevices(mountURL string) {
 	// 创建 /dev 目录
 	devDir := filepath.Join(mountURL, "dev")
-	if err := os.MkdirAll(devDir, 0755); err != nil {
+	if err := os.MkdirAll(devDir, 0755); err != nil && !os.IsExist(err) {
 		logrus.Errorf("创建 /dev 目录失败: %v", err)
 		return
 	}
 
 	// 创建 /dev/null - 使用 syscall.Mknod 替代 exec.Command
 	nullPath := filepath.Join(devDir, "null")
-	if err := syscall.Mknod(nullPath, syscall.S_IFCHR|uint32(0666), int(unix.Mkdev(1, 3))); err != nil {
+	if err := syscall.Mknod(nullPath, syscall.S_IFCHR|uint32(0666), int(unix.Mkdev(1, 3))); err != nil && !os.IsExist(err) {
 		logrus.Errorf("使用 syscall 创建 /dev/null 设备失败: %v", err)
 	} else {
 		if err := os.Chmod(nullPath, 0666); err != nil {
@@ -177,7 +177,7 @@ func CreateDevices(mountURL string) {
 
 	// 创建 /dev/zero
 	zeroPath := filepath.Join(devDir, "zero")
-	if err := syscall.Mknod(zeroPath, syscall.S_IFCHR|uint32(0666), int(unix.Mkdev(1, 5))); err != nil {
+	if err := syscall.Mknod(zeroPath, syscall.S_IFCHR|uint32(0666), int(unix.Mkdev(1, 5))); err != nil && !os.IsExist(err) {
 		logrus.Errorf("使用 syscall 创建 /dev/zero 设备失败: %v", err)
 	} else {
 		if err := os.Chmod(zeroPath, 0666); err != nil {
@@ -187,7 +187,7 @@ func CreateDevices(mountURL string) {
 
 	// 创建 /dev/random
 	randomPath := filepath.Join(devDir, "random")
-	if err := syscall.Mknod(randomPath, syscall.S_IFCHR|uint32(0666), int(unix.Mkdev(1, 8))); err != nil {
+	if err := syscall.Mknod(randomPath, syscall.S_IFCHR|uint32(0666), int(unix.Mkdev(1, 8))); err != nil && !os.IsExist(err) {
 		logrus.Errorf("使用 syscall 创建 /dev/random 设备失败: %v", err)
 	} else {
 		if err := os.Chmod(randomPath, 0666); err != nil {
@@ -197,7 +197,7 @@ func CreateDevices(mountURL string) {
 
 	// 创建 /dev/urandom
 	urandomPath := filepath.Join(devDir, "urandom")
-	if err := syscall.Mknod(urandomPath, syscall.S_IFCHR|uint32(0666), int(unix.Mkdev(1, 9))); err != nil {
+	if err := syscall.Mknod(urandomPath, syscall.S_IFCHR|uint32(0666), int(unix.Mkdev(1, 9))); err != nil && !os.IsExist(err) {
 		logrus.Errorf("使用 syscall 创建 /dev/urandom 设备失败: %v", err)
 	} else {
 		if err := os.Chmod(urandomPath, 0666); err != nil {
