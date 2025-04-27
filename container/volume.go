@@ -19,6 +19,7 @@ func NewWorkSpace(rootURL string, mountURL string, volume string) {
 	// 使用 OverlayFS 合并只读层和写层，挂载到 mountURL 上
 	CreateMountPoint(rootURL, mountURL)
 	// 如果用户指定了 volume 参数，则解析并挂载宿主机目录
+	CreateDevices(mountURL)
 	if volume != "" {
 		volumeURLs := volumeUrlExtract(volume)
 		if len(volumeURLs) == 2 && volumeURLs[0] != "" && volumeURLs[1] != "" {
@@ -151,6 +152,55 @@ func PathExists(path string) (bool, error) {
 		return false, nil // 路径不存在
 	}
 	return false, err // 其他错误
+}
+
+// CreateDevices 创建基本设备文件，包括 /dev/null、/dev/zero、/dev/random 和 /dev/urandom。
+func CreateDevices(mountURL string) {
+	// 创建 /dev 目录
+	devDir := filepath.Join(mountURL, "dev")
+	if err := os.MkdirAll(devDir, 0755); err != nil {
+		log.Errorf("创建 /dev 目录失败: %v", err)
+		return
+	}
+
+	// 创建 /dev/null 设备
+	nullDevice := filepath.Join(devDir, "null")
+	if err := exec.Command("mknod", nullDevice, "c", "1", "3").Run(); err != nil {
+		log.Errorf("创建 /dev/null 设备失败: %v", err)
+	}
+	if err := os.Chmod(nullDevice, 0666); err != nil {
+		log.Errorf("修改 /dev/null 权限失败: %v", err)
+	}
+
+	// 创建其他基本设备文件
+	// /dev/zero
+	zeroDevice := filepath.Join(devDir, "zero")
+	if err := exec.Command("mknod", zeroDevice, "c", "1", "5").Run(); err != nil {
+		log.Errorf("创建 /dev/zero 设备失败: %v", err)
+	}
+	if err := os.Chmod(zeroDevice, 0666); err != nil {
+		log.Errorf("修改 /dev/zero 权限失败: %v", err)
+	}
+
+	// /dev/random
+	randomDevice := filepath.Join(devDir, "random")
+	if err := exec.Command("mknod", randomDevice, "c", "1", "8").Run(); err != nil {
+		log.Errorf("创建 /dev/random 设备失败: %v", err)
+	}
+	if err := os.Chmod(randomDevice, 0666); err != nil {
+		log.Errorf("修改 /dev/random 权限失败: %v", err)
+	}
+
+	// /dev/urandom
+	urandomDevice := filepath.Join(devDir, "urandom")
+	if err := exec.Command("mknod", urandomDevice, "c", "1", "9").Run(); err != nil {
+		log.Errorf("创建 /dev/urandom 设备失败: %v", err)
+	}
+	if err := os.Chmod(urandomDevice, 0666); err != nil {
+		log.Errorf("修改 /dev/urandom 权限失败: %v", err)
+	}
+
+	log.Infof("基本设备文件创建完成")
 }
 
 // DeleteWorkSpace 删除容器工作空间，包含卸载挂载点和清理写层目录。

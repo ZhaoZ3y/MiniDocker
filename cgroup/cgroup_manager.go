@@ -2,6 +2,7 @@ package cgroup
 
 import (
 	"MiniDocker/cgroup/subsystems"
+	"MiniDocker/container"
 	"github.com/sirupsen/logrus"
 )
 
@@ -37,6 +38,11 @@ func (c *CgroupManager) Set(res *subsystems.ResourceConfig) error {
 
 // Destroy 释放cgroup
 func (c *CgroupManager) Destroy() error {
+	// 先检查 cgroup 是否存在
+	if exists, _ := container.PathExists(c.Path); !exists {
+		logrus.Warnf("cgroup %s 不存在，跳过删除", c.Path)
+		return nil
+	}
 	for _, subSysIns := range subsystems.SubsystemsIns {
 		if err := subSysIns.Remove(c.Path); err != nil {
 			logrus.Warnf("删除cgroup %s 失败: %v", c.Path, err)
