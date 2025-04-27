@@ -61,7 +61,6 @@ func Run(tty bool, commandArray []string, volume string, res *subsystems.Resourc
 		// 前台模式，等待容器退出
 		_ = parent.Wait()
 		deleteContainerInfo(containerName)
-		os.Exit(0) // 🔥前台结束后再退出
 	} else {
 		// 后台模式，打印 PID，不退出主程序
 		logrus.Infof("容器 %s 后台运行中，PID: %d", containerName, parent.Process.Pid)
