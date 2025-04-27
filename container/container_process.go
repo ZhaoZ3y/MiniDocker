@@ -39,9 +39,9 @@ func NewParentProcess(tty bool, volume string) (*exec.Cmd, *os.File) {
 	}
 
 	// 获取当前进程的路径（init 进程）
-	initCmd, err := os.Readlink("/proc/self/exe")
+	initCmd, err := os.Executable()
 	if err != nil {
-		logrus.Errorf("获取 init 进程路径失败: %v", err)
+		logrus.Errorf("获取当前可执行文件路径失败: %v", err)
 		return nil, nil
 	}
 	cmd := exec.Command(initCmd, "init")

@@ -41,7 +41,7 @@ func Run(tty bool, commandArray []string, volume string, res *subsystems.Resourc
 
 	// 创建并配置 Cgroup 管理器
 	cgroupManager := cgroup.NewCgroupManager("MiniDocker-Cgroup")
-
+	defer cgroupManager.Destroy() // 确保退出时清理资源
 	// 设置资源限制
 	if err := cgroupManager.Set(res); err != nil {
 		logrus.Error("资源限制设置失败", err)
@@ -58,12 +58,8 @@ func Run(tty bool, commandArray []string, volume string, res *subsystems.Resourc
 
 	if tty {
 		// 前台模式，等待容器退出
-		_ = parent.Wait()
+		parent.Wait()
 		deleteContainerInfo(containerName)
-		cgroupManager.Destroy() // 确保退出时清理资源
-	} else {
-		// 后台模式，打印 PID，不退出主程序
-		logrus.Infof("容器 %s 后台运行中，PID: %d", containerName, parent.Process.Pid)
 	}
 }
 
