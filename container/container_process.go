@@ -1,6 +1,7 @@
 package container
 
 import (
+	"fmt"
 	"github.com/sirupsen/logrus"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ var (
 	EXIT                string = "exit"                    // 容器已退出
 	DefaultInfoLocation string = "/var/run/MiniDocker/%s/" // 容器信息存储路径
 	ConfigName          string = "config.json"             // 容器配置文件名
+	LogFile             string = "container.log"
 )
 
 // Info 结构体定义了容器的基本信息
@@ -30,7 +32,7 @@ type Info struct {
 // NewParentProcess 创建一个新的父进程（容器的父进程）
 // tty 表示是否启用终端（比如交互式容器就需要）
 // 返回值包括：创建的 cmd 命令对象 和 写入端 writePipe，用于父子进程通信
-func NewParentProcess(tty bool, volume string) (*exec.Cmd, *os.File) {
+func NewParentProcess(tty bool, volume string, containerName string) (*exec.Cmd, *os.File) {
 	// 创建匿名管道：用于父子进程之间通信（传参数或控制信号）
 	readPipe, writePipe, err := NewPipe()
 	if err != nil {
@@ -39,17 +41,7 @@ func NewParentProcess(tty bool, volume string) (*exec.Cmd, *os.File) {
 	}
 
 	// 获取当前进程的路径（init 进程）
-	initCmd, err := os.Readlink("/proc/self/exe")
-	if err != nil {
-		// 修改这里：使用绝对路径或更可靠的方式获取可执行文件路径
-		execPath, err := exec.LookPath(os.Args[0])
-		if err != nil {
-			logrus.Errorf("获取 init 进程路径失败: %v", err)
-			return nil, nil
-		}
-		initCmd = execPath
-	}
-	cmd := exec.Command(initCmd, "init")
+	cmd := exec.Command("/proc/self/exe", "init")
 
 	// 设置命名空间隔离（关键点：实现容器隔离）
 	cmd.SysProcAttr = &syscall.SysProcAttr{
@@ -65,19 +57,25 @@ func NewParentProcess(tty bool, volume string) (*exec.Cmd, *os.File) {
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+	} else {
+		dirURL := fmt.Sprintf(DefaultInfoLocation, containerName)
+		if err := os.MkdirAll(dirURL, 0622); err != nil {
+			logrus.Errorf("创建目录 %v 失败: %v", dirURL, err)
+		}
+		stdLogFilePath := dirURL + "log.txt"
+		stdLogFile, err := os.Create(stdLogFilePath)
+		if err != nil {
+			logrus.Errorf("创建日志文件 %v 失败: %v", stdLogFilePath, err)
+			return nil, nil
+		}
+		// 设置子进程的标准输入输出为日志文件
+		cmd.Stdin = stdLogFile
 	}
 
 	// 把管道的读端传递给子进程（子进程从这里读取父进程传过来的数据）
 	cmd.ExtraFiles = []*os.File{readPipe}
-
-	// 初始化容器的挂载点（写层 + 只读层 + aufs 挂载）
-	mountURL := "/root/mnt"
-	rootURL := "/root/"
-	NewWorkSpace(rootURL, mountURL, volume)
-
 	// 设置子进程的当前工作目录为挂载点目录
-	cmd.Dir = mountURL
-
+	cmd.Dir = "/root/busybox"
 	return cmd, writePipe
 }
 

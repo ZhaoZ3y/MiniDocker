@@ -128,6 +128,20 @@ var listCommand = &cli.Command{
 	},
 }
 
+// logCommand 命令定义：查看容器的日志
+var logCommand = &cli.Command{
+	Name:  "log",
+	Usage: "查看容器的日志",
+	Action: func(ctx *cli.Context) error {
+		if ctx.NArg() < 1 {
+			return fmt.Errorf("缺少容器名称参数")
+		}
+		containerName := ctx.Args().Get(0) // 获取容器名称
+		logContainer(containerName)
+		return nil
+	},
+}
+
 // ListContainers 列出当前所有容器及其状态
 func ListContainers() {
 	// 容器信息根目录
@@ -193,4 +207,26 @@ func getContainerInfo(file os.FileInfo) (*container.Info, error) {
 	}
 	// 返回解析后的容器信息
 	return &containerInfo, nil
+}
+
+// logContainer 查看指定容器的日志
+func logContainer(containerName string) {
+	// 拼接容器日志文件路径
+	logFilePath := fmt.Sprintf(container.DefaultInfoLocation, containerName)
+	logFileLocation := logFilePath + container.LogFile
+	// 打开日志文件
+	file, err := os.Open(logFileLocation)
+	defer file.Close()
+	if err != nil {
+		logrus.Errorf("打开日志文件失败: %v", err)
+		return
+	}
+	// 读取文件内容
+	content, err := ioutil.ReadAll(file)
+	if err != nil {
+		logrus.Errorf("读取日志文件失败: %v", err)
+		return
+	}
+	// 打印日志内容
+	fmt.Fprint(os.Stdout, string(content))
 }
