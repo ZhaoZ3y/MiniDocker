@@ -21,7 +21,7 @@ import (
 // volume 是宿主机与容器的挂载路径
 func Run(tty bool, commandArray []string, volume string, res *subsystems.ResourceConfig, containerName string) {
 	// 创建容器父进程和通信管道
-	parent, writePipe := container.NewParentProcess(tty, volume)
+	parent, writePipe := container.NewParentProcess(tty, volume, containerName)
 	if parent == nil {
 		logrus.Error("父进程创建失败")
 		return
