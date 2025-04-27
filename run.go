@@ -58,14 +58,14 @@ func Run(tty bool, commandArray []string, volume string, res *subsystems.Resourc
 	sendInitCommand(commandArray, writePipe)
 
 	if tty {
-		// 等待容器进程结束
-		parent.Wait()
-		// 清理容器信息
+		// 前台模式，等待容器退出
+		_ = parent.Wait()
 		deleteContainerInfo(containerName)
+		os.Exit(0) // 🔥前台结束后再退出
+	} else {
+		// 后台模式，打印 PID，不退出主程序
+		logrus.Infof("容器 %s 后台运行中，PID: %d", containerName, parent.Process.Pid)
 	}
-
-	// 退出当前主进程
-	os.Exit(0)
 }
 
 // sendInitCommand 将用户命令写入管道，传递给子进程（init 进程）
