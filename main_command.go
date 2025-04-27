@@ -213,7 +213,7 @@ func getContainerInfo(file os.FileInfo) (*container.Info, error) {
 func logContainer(containerName string) {
 	// 拼接容器日志文件路径
 	logFilePath := fmt.Sprintf(container.DefaultInfoLocation, containerName)
-	logFileLocation := logFilePath + container.LogFile
+	logFileLocation := logFilePath + container.ContainerLogFile
 	// 打开日志文件
 	file, err := os.Open(logFileLocation)
 	defer file.Close()
