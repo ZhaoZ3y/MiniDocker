@@ -130,7 +130,7 @@ var listCommand = &cli.Command{
 
 // logCommand 命令定义：查看容器的日志
 var logCommand = &cli.Command{
-	Name:  "log",
+	Name:  "logs",
 	Usage: "查看容器的日志",
 	Action: func(ctx *cli.Context) error {
 		if ctx.NArg() < 1 {

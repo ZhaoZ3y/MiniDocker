@@ -15,7 +15,7 @@ var (
 	EXIT                string = "exit"                    // 容器已退出
 	DefaultInfoLocation string = "/var/run/MiniDocker/%s/" // 容器信息存储路径
 	ConfigName          string = "config.json"             // 容器配置文件名
-	LogFile             string = "container.log"
+	ContainerLogFile    string = "container.log"
 )
 
 // Info 结构体定义了容器的基本信息
@@ -62,7 +62,7 @@ func NewParentProcess(tty bool, volume string, containerName string) (*exec.Cmd,
 		if err := os.MkdirAll(dirURL, 0622); err != nil {
 			logrus.Errorf("创建目录 %v 失败: %v", dirURL, err)
 		}
-		stdLogFilePath := dirURL + "log.txt"
+		stdLogFilePath := dirURL + ContainerLogFile
 		stdLogFile, err := os.Create(stdLogFilePath)
 		if err != nil {
 			logrus.Errorf("创建日志文件 %v 失败: %v", stdLogFilePath, err)
