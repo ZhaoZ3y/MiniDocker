@@ -144,10 +144,12 @@ var execCommand = &cli.Command{
 	Name:  "exec",
 	Usage: "在容器中执行命令",
 	Action: func(ctx *cli.Context) error {
+		// 这里检查环境变量，如果已设置则说明已经在容器内部了
 		if os.Getenv(ENV_EXEC_PID) != "" {
 			logrus.Infof("pid callback pid %d", os.Getpid())
-			return nil
+			return nil // 这里直接返回可能导致问题！
 		}
+
 		if ctx.NArg() < 2 {
 			return fmt.Errorf("缺少容器名称和命令参数")
 		}

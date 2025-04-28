@@ -55,8 +55,8 @@ __attribute__((constructor)) void enter_namespace(void) {
 
     int i;
     char nspath[1024];
-    // 调整命名空间进入顺序，先进入PID命名空间
-    char *namespaces[] = { "pid", "mnt", "ipc", "uts", "net" };
+    // 顺序很重要：先进入 uts, ipc, net，再进入 pid，最后进入 mnt
+    char *namespaces[] = { "uts", "ipc", "net", "pid", "mnt" };
 
     // 遍历所有需要进入的 namespace
     for (i = 0; i < 5; i++) {
@@ -76,25 +76,32 @@ __attribute__((constructor)) void enter_namespace(void) {
             close(fd);
             exit(1);
         }
-
-        // 关闭文件描述符，避免资源泄露
         close(fd);
     }
 
-    // 获取容器的根目录路径
-    char rootfs[1024];
-    sprintf(rootfs, "/proc/%s/root", MiniDocker_pid);
+    // 获取容器根目录路径并切换到容器的文件系统
+    char rootfs_path[1024];
+    sprintf(rootfs_path, "/proc/%s/root", MiniDocker_pid);
 
-    // 切换根目录到容器的根目录
-    if (chroot(rootfs) != 0) {
-        fprintf(stderr, "chroot到容器根目录失败: %s\n", strerror(errno));
+    // 切换到容器的根文件系统
+    if (chroot(rootfs_path) != 0) {
+        fprintf(stderr, "chroot 到容器根目录失败: %s\n", strerror(errno));
         exit(1);
     }
 
-    // 切换工作目录到容器根目录
+    // 切换工作目录
     if (chdir("/") != 0) {
         fprintf(stderr, "切换工作目录失败: %s\n", strerror(errno));
         exit(1);
+    }
+
+    // 确保 /proc 在容器内部已挂载
+    if (access("/proc/self", F_OK) != 0) {
+        // 如果 /proc 不存在或无法访问，尝试挂载
+        if (mount("proc", "/proc", "proc", 0, NULL) != 0) {
+            fprintf(stderr, "挂载 /proc 失败: %s\n", strerror(errno));
+            // 这里不退出，因为某些容器可能有特殊配置
+        }
     }
 
     // 分割命令字符串为参数数组
@@ -105,14 +112,12 @@ __attribute__((constructor)) void enter_namespace(void) {
         exit(1);
     }
 
-    // 进入所有 namespace 后，执行传入的命令
+    // 使用 execvp 执行命令
     execvp(argv[0], argv);
 
-    // execvp 出错的话，打印错误信息
-    perror("execvp");
-    // 命令执行失败后直接退出程序
+    // 如果 execvp 返回，说明执行失败
+    fprintf(stderr, "执行命令 %s 失败: %s\n", argv[0], strerror(errno));
     exit(1);
-    return;
 }
 */
 import "C"

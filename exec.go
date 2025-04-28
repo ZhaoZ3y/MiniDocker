@@ -31,7 +31,6 @@ func ExecContainer(containerName string, comArray []string) {
 	logrus.Infof("要执行的命令: %s", cmdStr)
 
 	// 创建一个新的命令：再次执行自己（/proc/self/exe），并传递参数 "exec"
-	// 这里是为了触发 nsenter 的逻辑
 	cmd := exec.Command("/proc/self/exe", "exec")
 
 	// 将当前进程的标准输入输出错误传递给新进程，保持一致
@@ -40,21 +39,17 @@ func ExecContainer(containerName string, comArray []string) {
 	cmd.Stderr = os.Stderr
 
 	// 设置环境变量，供 nsenter 中的 enter_namespace 使用
-	os.Setenv(ENV_EXEC_PID, pid)
-	os.Setenv(ENV_EXEC_CMD, cmdStr)
-
-	// 设置 TTY 环境
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setctty: true,               // 为子进程设置控制终端
-		Setsid:  true,               // 创建新的会话
-		Ctty:    int(os.Stdin.Fd()), // 将容器内的进程绑定到当前终端
-	}
-
-	// 设置命令的环境变量
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("%s=%s", ENV_EXEC_PID, pid),
 		fmt.Sprintf("%s=%s", ENV_EXEC_CMD, cmdStr),
 	)
+
+	// 重要: 设置正确的 TTY 参数
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWNS, // 新的挂载命名空间
+		Setctty:    true,                // 设置控制终端
+		Setsid:     true,                // 创建新会话
+	}
 
 	// 启动新进程，进入容器的 namespace 并执行命令
 	if err := cmd.Run(); err != nil {
