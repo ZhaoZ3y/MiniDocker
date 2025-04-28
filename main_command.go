@@ -7,6 +7,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 	"os"
+	"os/exec"
+	"strings"
 )
 
 // runCommand 命令定义：用于创建并运行一个容器
@@ -144,22 +146,40 @@ var execCommand = &cli.Command{
 	Name:  "exec",
 	Usage: "在容器中执行命令",
 	Action: func(ctx *cli.Context) error {
-		// 这里检查环境变量，如果已设置则说明已经在容器内部了
+		// 这里检查环境变量，表示我们已经在容器内部了
 		if os.Getenv(ENV_EXEC_PID) != "" {
 			logrus.Infof("pid callback pid %d", os.Getpid())
-			return nil // 这里直接返回可能导致问题！
+			// 获取要执行的命令
+			cmdStr := os.Getenv(ENV_EXEC_CMD)
+			if cmdStr == "" {
+				return fmt.Errorf("没有指定要执行的命令")
+			}
+
+			// 分割命令字符串为命令和参数
+			cmdParts := strings.Split(cmdStr, " ")
+			if len(cmdParts) == 0 {
+				return fmt.Errorf("命令为空")
+			}
+
+			// 创建命令
+			cmd := exec.Command(cmdParts[0], cmdParts[1:]...)
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+
+			// 执行命令
+			return cmd.Run()
 		}
 
+		// 原有的代码，处理非容器内部的情况
 		if ctx.NArg() < 2 {
 			return fmt.Errorf("缺少容器名称和命令参数")
 		}
-		containerName := ctx.Args().Get(0) // 获取容器名称
+		containerName := ctx.Args().Get(0)
 		var commandArray []string
-		// 将除了第一个参数（容器名称）之外的所有参数都加入命令数组
 		for _, arg := range ctx.Args().Tail() {
 			commandArray = append(commandArray, arg)
 		}
-		// 执行容器中的命令
 		ExecContainer(containerName, commandArray)
 		return nil
 	},

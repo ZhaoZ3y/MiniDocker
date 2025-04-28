@@ -34,23 +34,15 @@ char **split_cmd(char *cmd, int *argc) {
 // 这段 C 代码会自动执行，不需要手动调用。
 __attribute__((constructor)) void enter_namespace(void) {
     char *MiniDocker_pid;
-    // 获取环境变量 MiniDocker_pid，该环境变量保存的是目标进程的 PID
     MiniDocker_pid = getenv("MiniDocker_pid");
-    if (MiniDocker_pid) {
-        // 成功获取到 MiniDocker_pid，准备进入对应进程的 namespace
-    } else {
-        // 如果没有 MiniDocker_pid 环境变量，说明不需要 nsenter，直接返回
-        return;
+    if (!MiniDocker_pid) {
+        return;  // 没有设置环境变量，直接返回
     }
 
-    char *MiniDocker_cmd;
-    // 获取环境变量 MiniDocker_cmd，该环境变量保存的是需要执行的命令
+     char *MiniDocker_cmd;
     MiniDocker_cmd = getenv("MiniDocker_cmd");
-    if (MiniDocker_cmd) {
-        // 成功获取到命令，稍后执行
-    } else {
-        // 如果没有 MiniDocker_cmd，说明没有需要执行的命令，直接返回
-        return;
+    if (!MiniDocker_cmd) {
+        return;  // 没有命令，直接返回
     }
 
     int i;
