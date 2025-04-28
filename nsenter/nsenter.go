@@ -9,7 +9,7 @@ package nsenter
 #include <fcntl.h>
 #include <unistd.h> // 需要用到 execvp
 
-// 帮助函数：把命令字符串分割成参数数组
+// 辅助函数：把命令字符串分割成参数数组
 char **split_cmd(char *cmd, int *argc) {
     char **argv = NULL;
     char *token = strtok(cmd, " ");
@@ -55,8 +55,9 @@ __attribute__((constructor)) void enter_namespace(void) {
 
     int i;
     char nspath[1024];
-    // 定义需要进入的命名空间类型
-    char *namespaces[] = { "ipc", "uts", "net", "pid", "mnt" };
+    // 调整命名空间进入顺序，先进入PID命名空间
+    char *namespaces[] = { "pid", "mnt", "ipc", "uts", "net" };
+
     // 遍历所有需要进入的 namespace
     for (i = 0; i < 5; i++) {
         // 构造 namespace 文件的路径，例如 /proc/1234/ns/ipc
@@ -64,16 +65,36 @@ __attribute__((constructor)) void enter_namespace(void) {
 
         // 打开 namespace 文件，获得文件描述符
         int fd = open(nspath, O_RDONLY);
+        if (fd < 0) {
+            fprintf(stderr, "打开命名空间 %s 失败: %s\n", namespaces[i], strerror(errno));
+            exit(1);
+        }
 
         // 通过 setns 系统调用进入指定的 namespace
         if (setns(fd, 0) == -1) {
-            // 进入失败，可以打印错误信息（这里注释掉了）
-        } else {
-            // 成功进入对应 namespace
+            fprintf(stderr, "进入命名空间 %s 失败: %s\n", namespaces[i], strerror(errno));
+            close(fd);
+            exit(1);
         }
 
         // 关闭文件描述符，避免资源泄露
         close(fd);
+    }
+
+    // 获取容器的根目录路径
+    char rootfs[1024];
+    sprintf(rootfs, "/proc/%s/root", MiniDocker_pid);
+
+    // 切换根目录到容器的根目录
+    if (chroot(rootfs) != 0) {
+        fprintf(stderr, "chroot到容器根目录失败: %s\n", strerror(errno));
+        exit(1);
+    }
+
+    // 切换工作目录到容器根目录
+    if (chdir("/") != 0) {
+        fprintf(stderr, "切换工作目录失败: %s\n", strerror(errno));
+        exit(1);
     }
 
     // 分割命令字符串为参数数组
