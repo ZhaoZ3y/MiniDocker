@@ -394,3 +394,233 @@ func DeleteMountPointWithVolume(rootURL string, mountURL string, volumeURLs []st
     }
 }
 ```
+
+## 5.exec进入容器命名空间时无法绑定终端
+```shell
+root@yzq-virtual-machine:~# ./MiniDocker run --name bird -d top
+INFO[0000] createTty: false                             
+INFO[0000] 用户传入的命令：top                                  
+root@yzq-virtual-machine:~# ./MiniDocker exec bird sh
+INFO[0000] 容器的 PID: 4494                                
+INFO[0000] 要执行的命令: sh                                   
+ERRO[0000] 执行容器 bird 发生错误 fork/exec /proc/self/exe: no such file or directory 
+root@yzq-virtual-machine:~# mount -t proc proc /proc
+root@yzq-virtual-machine:~# ./MiniDocker exec bird sh
+INFO[0000] 容器的 PID: 4494                                
+INFO[0000] 要执行的命令: sh                                   
+INFO[0000] pid callback pid 4530                        
+root@yzq-virtual-machine:~# 
+```
+我想了下可能是问题出在了我后台运行时是没有绑定tty的，进入容器时也没有绑定tty
+
+然后我就加上了绑定tty
+```go
+// ExecContainer 用于在指定容器内执行命令
+func ExecContainer(containerName string, comArray []string) {
+	// 通过容器名查找对应的 PID
+	pid, err := GetContainerPidByName(containerName)
+	if err != nil {
+		logrus.Errorf("ExecContainer getContainerPidByName %s 发生错误 %v", containerName, err)
+		return
+	}
+
+	// 将用户输入的命令数组转成空格分隔的字符串，比如 ["ls", "-l"] -> "ls -l"
+	cmdStr := strings.Join(comArray, " ")
+	logrus.Infof("容器的 PID: %s", pid)
+	logrus.Infof("要执行的命令: %s", cmdStr)
+
+	// 创建一个新的命令：再次执行自己（/proc/self/exe），并传递参数 "exec"
+	// 这里是为了触发 nsenter 的逻辑
+	cmd := exec.Command("/proc/self/exe", "exec")
+
+	// 将当前进程的标准输入输出错误传递给新进程，保持一致
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	// 设置环境变量，供 nsenter 中的 enter_namespace 使用
+	os.Setenv(ENV_EXEC_PID, pid)
+	os.Setenv(ENV_EXEC_CMD, cmdStr)
+
+	// 设置命令的环境变量
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("%s=%s", ENV_EXEC_PID, pid),
+		fmt.Sprintf("%s=%s", ENV_EXEC_CMD, cmdStr),
+	)
+
+	// 启动新进程，进入容器的 namespace 并执行命令
+	if err := cmd.Run(); err != nil {
+		logrus.Errorf("执行容器 %s 发生错误 %v", containerName, err)
+	}
+}
+```
+
+但是还是失败了
+所以我只能询问ChatGPT
+
+他跟我说我的`nsenter.go`代码和`exec.go`两个都要修改
+
+然后我就直接把nsenter.go的代码直接复制到exec.go里面了
+```go
+package nsenter
+
+/*
+#include <errno.h>
+#include <sched.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <fcntl.h>
+#include <unistd.h> // 需要用到 execvp
+
+// 辅助函数：把命令字符串分割成参数数组
+char **split_cmd(char *cmd, int *argc) {
+    char **argv = NULL;
+    char *token = strtok(cmd, " ");
+    int count = 0;
+
+    while (token != NULL) {
+        argv = realloc(argv, sizeof(char*) * (count + 1));
+        argv[count] = token;
+        count++;
+        token = strtok(NULL, " ");
+    }
+
+    // 最后添加一个 NULL，execvp 需要
+    argv = realloc(argv, sizeof(char*) * (count + 1));
+    argv[count] = NULL;
+
+    *argc = count;
+    return argv;
+}
+
+// 该函数被标记为 constructor，意思是：在 Go 程序加载这个包时，
+// 这段 C 代码会自动执行，不需要手动调用。
+__attribute__((constructor)) void enter_namespace(void) {
+    char *MiniDocker_pid;
+    MiniDocker_pid = getenv("MiniDocker_pid");
+    if (!MiniDocker_pid) {
+        return;  // 没有设置环境变量，直接返回
+    }
+
+     char *MiniDocker_cmd;
+    MiniDocker_cmd = getenv("MiniDocker_cmd");
+    if (!MiniDocker_cmd) {
+        return;  // 没有命令，直接返回
+    }
+
+    int i;
+    char nspath[1024];
+    // 顺序很重要：先进入 uts, ipc, net，再进入 pid，最后进入 mnt
+    char *namespaces[] = { "uts", "ipc", "net", "pid", "mnt" };
+
+    // 遍历所有需要进入的 namespace
+    for (i = 0; i < 5; i++) {
+        // 构造 namespace 文件的路径，例如 /proc/1234/ns/ipc
+        sprintf(nspath, "/proc/%s/ns/%s", MiniDocker_pid, namespaces[i]);
+
+        // 打开 namespace 文件，获得文件描述符
+        int fd = open(nspath, O_RDONLY);
+        if (fd < 0) {
+            fprintf(stderr, "打开命名空间 %s 失败: %s\n", namespaces[i], strerror(errno));
+            exit(1);
+        }
+
+        // 通过 setns 系统调用进入指定的 namespace
+        if (setns(fd, 0) == -1) {
+            fprintf(stderr, "进入命名空间 %s 失败: %s\n", namespaces[i], strerror(errno));
+            close(fd);
+            exit(1);
+        }
+        close(fd);
+    }
+
+    // 获取容器根目录路径并切换到容器的文件系统
+    char rootfs_path[1024];
+    sprintf(rootfs_path, "/proc/%s/root", MiniDocker_pid);
+
+    // 切换到容器的根文件系统
+    if (chroot(rootfs_path) != 0) {
+        fprintf(stderr, "chroot 到容器根目录失败: %s\n", strerror(errno));
+        exit(1);
+    }
+
+    // 切换工作目录
+    if (chdir("/") != 0) {
+        fprintf(stderr, "切换工作目录失败: %s\n", strerror(errno));
+        exit(1);
+    }
+
+    // 确保 /proc 在容器内部已挂载
+    if (access("/proc/self", F_OK) != 0) {
+        // 如果 /proc 不存在或无法访问，尝试挂载
+        if (mount("proc", "/proc", "proc", 0, NULL) != 0) {
+            fprintf(stderr, "挂载 /proc 失败: %s\n", strerror(errno));
+            // 这里不退出，因为某些容器可能有特殊配置
+        }
+    }
+
+    // 分割命令字符串为参数数组
+    int argc = 0;
+    char **argv = split_cmd(MiniDocker_cmd, &argc);
+    if (argv == NULL || argc == 0) {
+        fprintf(stderr, "split_cmd failed\n");
+        exit(1);
+    }
+
+    // 使用 execvp 执行命令
+    execvp(argv[0], argv);
+
+    // 如果 execvp 返回，说明执行失败
+    fprintf(stderr, "执行命令 %s 失败: %s\n", argv[0], strerror(errno));
+    exit(1);
+}
+*/
+import "C"
+```
+```go
+// ExecContainer 用于在指定容器内执行命令
+func ExecContainer(containerName string, comArray []string) {
+	// 通过容器名查找对应的 PID
+	pid, err := GetContainerPidByName(containerName)
+	if err != nil {
+		logrus.Errorf("ExecContainer getContainerPidByName %s 发生错误 %v", containerName, err)
+		return
+	}
+
+	// 将用户输入的命令数组转成空格分隔的字符串，比如 ["ls", "-l"] -> "ls -l"
+	cmdStr := strings.Join(comArray, " ")
+	logrus.Infof("容器的 PID: %s", pid)
+	logrus.Infof("要执行的命令: %s", cmdStr)
+
+	// 创建一个新的命令：再次执行自己（/proc/self/exe），并传递参数 "exec"
+	cmd := exec.Command("/proc/self/exe", "exec")
+
+	// 将当前进程的标准输入输出错误传递给新进程，保持一致
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	// 设置环境变量，供 nsenter 中的 enter_namespace 使用
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("%s=%s", ENV_EXEC_PID, pid),
+		fmt.Sprintf("%s=%s", ENV_EXEC_CMD, cmdStr),
+	)
+
+	// 重要: 设置正确的 TTY 参数
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWNS, // 新的挂载命名空间
+		Setctty:    true,                // 设置控制终端
+		Setsid:     true,                // 创建新会话
+	}
+
+	// 启动新进程，进入容器的 namespace 并执行命令
+	if err := cmd.Run(); err != nil {
+		logrus.Errorf("执行容器 %s 发生错误 %v", containerName, err)
+	}
+}
+```
+
+最后总算可以绑定终端了
+
+虽然输出似乎和书上的不太一样不过我们的环境是不一样的，应该是正常的吧
