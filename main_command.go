@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
+	"os"
 )
 
 // runCommand 命令定义：用于创建并运行一个容器
@@ -134,6 +135,30 @@ var logCommand = &cli.Command{
 		}
 		containerName := ctx.Args().Get(0) // 获取容器名称
 		logContainer(containerName)
+		return nil
+	},
+}
+
+// execCommand 命令定义：在容器中执行命令
+var execCommand = &cli.Command{
+	Name:  "exec",
+	Usage: "在容器中执行命令",
+	Action: func(ctx *cli.Context) error {
+		if os.Getenv(ENV_EXEC_PID) != "" {
+			logrus.Infof("pid callback pid %s", os.Getgid())
+			return nil
+		}
+		if ctx.NArg() < 2 {
+			return fmt.Errorf("缺少容器名称和命令参数")
+		}
+		containerName := ctx.Args().Get(0) // 获取容器名称
+		var commandArray []string
+		// 将除了第一个参数（容器名称）之外的所有参数都加入命令数组
+		for _, arg := range ctx.Args().Tail() {
+			commandArray = append(commandArray, arg)
+		}
+		// 执行容器中的命令
+		ExecContainer(containerName, commandArray)
 		return nil
 	},
 }
