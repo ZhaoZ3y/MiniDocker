@@ -1,14 +1,15 @@
 package main
 
 import (
-	"MiniDocker/container" // 引入自己项目中定义的 container 包
+	"MiniDocker/container"
 	"encoding/json"
 	"fmt"
-	"github.com/sirupsen/logrus" // 日志库
+	"github.com/sirupsen/logrus"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 )
 
 // 定义环境变量名称
@@ -41,6 +42,13 @@ func ExecContainer(containerName string, comArray []string) {
 	// 设置环境变量，供 nsenter 中的 enter_namespace 使用
 	os.Setenv(ENV_EXEC_PID, pid)
 	os.Setenv(ENV_EXEC_CMD, cmdStr)
+
+	// 设置 TTY 环境
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setctty: true,               // 为子进程设置控制终端
+		Setsid:  true,               // 创建新的会话
+		Ctty:    int(os.Stdin.Fd()), // 将容器内的进程绑定到当前终端
+	}
 
 	// 设置命令的环境变量
 	cmd.Env = append(os.Environ(),
