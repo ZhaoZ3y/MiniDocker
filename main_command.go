@@ -145,7 +145,7 @@ var execCommand = &cli.Command{
 	Usage: "在容器中执行命令",
 	Action: func(ctx *cli.Context) error {
 		if os.Getenv(ENV_EXEC_PID) != "" {
-			logrus.Infof("pid callback pid %s", os.Getgid())
+			logrus.Infof("pid callback pid %d", os.Getpid())
 			return nil
 		}
 		if ctx.NArg() < 2 {

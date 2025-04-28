@@ -42,6 +42,12 @@ func ExecContainer(containerName string, comArray []string) {
 	os.Setenv(ENV_EXEC_PID, pid)
 	os.Setenv(ENV_EXEC_CMD, cmdStr)
 
+	// 设置命令的环境变量
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("%s=%s", ENV_EXEC_PID, pid),
+		fmt.Sprintf("%s=%s", ENV_EXEC_CMD, cmdStr),
+	)
+
 	// 启动新进程，进入容器的 namespace 并执行命令
 	if err := cmd.Run(); err != nil {
 		logrus.Errorf("执行容器 %s 发生错误 %v", containerName, err)
