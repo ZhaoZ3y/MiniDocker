@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/sirupsen/logrus"
 	"io/ioutil"
+	"os"
 	"strconv"
 	"syscall"
 )
@@ -22,6 +23,11 @@ func stopContainer(containerName string) {
 	pidInt, err := strconv.Atoi(pid)
 	if err != nil {
 		logrus.Errorf("PID 转换失败: %v", err)
+		return
+	}
+	// 检查容器进程是否存在
+	if _, err := os.FindProcess(pidInt); err != nil {
+		logrus.Errorf("容器 %s 的进程不存在: %v", containerName, err)
 		return
 	}
 	// 发送 SIGTERM 信号给容器进程，优雅停止
