@@ -1,11 +1,8 @@
 package main
 
 import (
-	"MiniDocker/container"
-	"encoding/json"
 	"fmt"
 	"github.com/sirupsen/logrus"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"strings"
@@ -55,26 +52,4 @@ func ExecContainer(containerName string, comArray []string) {
 	if err := cmd.Run(); err != nil {
 		logrus.Errorf("执行容器 %s 发生错误 %v", containerName, err)
 	}
-}
-
-// GetContainerPidByName 根据容器名字获取其 PID
-func GetContainerPidByName(containerName string) (string, error) {
-	// 拼接出容器对应的配置文件路径
-	dirURL := fmt.Sprintf(container.DefaultInfoLocation, containerName)
-	configFilePath := dirURL + container.ConfigName
-
-	// 读取容器的配置信息
-	contentBytes, err := ioutil.ReadFile(configFilePath)
-	if err != nil {
-		return "", err
-	}
-
-	var containerInfo container.Info
-	// 反序列化 JSON 数据到 containerInfo 结构体
-	if err := json.Unmarshal(contentBytes, &containerInfo); err != nil {
-		return "", err
-	}
-
-	// 返回容器的 PID
-	return containerInfo.Pid, nil
 }

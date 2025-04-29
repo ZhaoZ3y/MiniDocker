@@ -2,7 +2,6 @@ package main
 
 import (
 	"MiniDocker/container"
-	"encoding/json"
 	"fmt"
 	"github.com/sirupsen/logrus"
 	"io/ioutil"
@@ -52,27 +51,4 @@ func ListContainers() {
 		logrus.Errorf("刷新表格失败: %v", err)
 		return
 	}
-}
-
-// getContainerInfo 读取指定容器的配置文件，解析并返回容器信息
-func getContainerInfo(file os.FileInfo) (*container.Info, error) {
-	// 获取文件名
-	containerName := file.Name()
-	// 拼接完整路径
-	configFilePath := fmt.Sprintf(container.DefaultInfoLocation, containerName)
-	configFilePath = configFilePath + container.ConfigName
-	// 读取配置文件内容
-	content, err := ioutil.ReadFile(configFilePath)
-	if err != nil {
-		logrus.Errorf("读取配置文件 %v 失败: %v", configFilePath, err)
-		return nil, err
-	}
-	// 解析 JSON 内容为 Info 结构体
-	var containerInfo container.Info
-	if err := json.Unmarshal(content, &containerInfo); err != nil {
-		logrus.Errorf("解析 JSON 失败: %v", err)
-		return nil, err
-	}
-	// 返回解析后的容器信息
-	return &containerInfo, nil
 }

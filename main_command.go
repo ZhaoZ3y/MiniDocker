@@ -184,3 +184,19 @@ var execCommand = &cli.Command{
 		return nil
 	},
 }
+
+// stopCommand 命令定义：停止容器
+var stopCommand = &cli.Command{
+	Name:  "stop",
+	Usage: "停止容器",
+	Action: func(ctx *cli.Context) error {
+		// 参数检查：至少需要一个容器名称参数
+		if ctx.NArg() < 1 {
+			logrus.Error("缺少容器名称参数")
+		}
+		containerName := ctx.Args().Get(0) // 获取容器名称
+		// 停止容器
+		stopContainer(containerName)
+		return nil
+	},
+}

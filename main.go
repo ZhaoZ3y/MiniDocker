@@ -24,6 +24,7 @@ func main() {
 			listCommand,   // 列出容器（用户调用）
 			logCommand,    // 查看容器日志（用户调用）
 			execCommand,   // 在容器中执行命令（用户调用）
+			stopCommand,   // 停止容器（用户调用）
 		},
 		// 在执行命令前统一设置日志格式和输出目标
 		Before: func(c *cli.Context) error {
