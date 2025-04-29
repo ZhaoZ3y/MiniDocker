@@ -60,28 +60,7 @@ func Run(tty bool, commandArray []string, volume string, res *subsystems.Resourc
 		// 前台模式，等待容器退出
 		parent.Wait()
 		deleteContainerInfo(containerName)
-		cgroupManager.Destroy() // 清理资源
-	} else {
-		// 后台模式，启动一个守护进程来监控容器状态
-		go func() {
-			// 等待容器进程结束
-			err := parent.Wait()
-			if err != nil {
-				logrus.Errorf("容器[%s]异常退出: %v", containerName, err)
-			}
-			// 不要自动删除容器信息，保留供用户查询
-			// deleteContainerInfo(containerName)
-
-			// 清理 cgroup 资源
-			if err := cgroupManager.Destroy(); err != nil {
-				logrus.Errorf("清理容器[%s]的 Cgroup 资源失败: %v", containerName, err)
-			}
-
-			logrus.Infof("容器[%s]已退出", containerName)
-		}()
-
-		// 打印容器ID以便用户后续操作
-		fmt.Printf("容器已在后台启动，ID: %s\n", containerName)
+		cgroupManager.Destroy() // 确保退出时清理资源
 	}
 }
 

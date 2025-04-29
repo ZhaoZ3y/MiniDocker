@@ -11,6 +11,8 @@ import (
 	"strings"
 )
 
+// runCommand 命令定义：用于创建并运行一个容器
+// 使用示例：MiniDocker run -ti /bin/bash
 var runCommand = &cli.Command{
 	Name:  "run", // 命令名称为 run
 	Usage: `创建一个容器，并启用 namespace 和 cgroups 资源限制，例如: MiniDocker run -ti [镜像名] [命令]`,
@@ -69,19 +71,13 @@ var runCommand = &cli.Command{
 		if createTty && detach {
 			return fmt.Errorf("不能同时使用 -ti 和 -d 参数")
 		}
-
-		// 如果是后台运行，则设置 tty 为 false
-		if detach {
-			createTty = false
-		}
-
 		// resConf 是资源限制配置结构体，包含内存、CPU 权重和 CPU 核心限制
 		resConf := &subsystems.ResourceConfig{
 			MemoryLimit: ctx.String("m"),        // 内存限制
 			CpuShare:    ctx.String("cpushare"), // CPU 权重限制
 			CpuSet:      ctx.String("cpuset"),   // CPU 核心限制
 		}
-		logrus.Infof("createTty: %v, detach: %v", createTty, detach)
+		logrus.Infof("createTty: %v", createTty)
 		// 获取容器名称参数
 		containerName := ctx.String("name")
 		// 获取用户指定的挂载目录（形如 /宿主机路径:/容器路径）
@@ -201,6 +197,22 @@ var stopCommand = &cli.Command{
 		containerName := ctx.Args().Get(0) // 获取容器名称
 		// 停止容器
 		stopContainer(containerName)
+		return nil
+	},
+}
+
+// removeCommand 命令定义：删除容器
+var removeCommand = &cli.Command{
+	Name:  "rm",
+	Usage: "删除容器",
+	Action: func(ctx *cli.Context) error {
+		// 参数检查：至少需要一个容器名称参数
+		if ctx.NArg() < 1 {
+			logrus.Error("缺少容器名称参数")
+		}
+		containerName := ctx.Args().Get(0) // 获取容器名称
+		// 删除容器
+		removeContainer(containerName)
 		return nil
 	},
 }
