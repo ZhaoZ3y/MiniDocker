@@ -70,6 +70,7 @@ func NewParentProcess(tty bool, volume string, containerName string) (*exec.Cmd,
 		}
 		// 设置子进程的标准输入输出为日志文件
 		cmd.Stdout = stdLogFile
+		cmd.Stderr = stdLogFile
 	}
 
 	// 把管道的读端传递给子进程（子进程从这里读取父进程传过来的数据）

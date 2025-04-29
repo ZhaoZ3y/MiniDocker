@@ -624,3 +624,12 @@ func ExecContainer(containerName string, comArray []string) {
 最后总算可以绑定终端了
 
 虽然输出似乎和书上的不太一样不过我们的环境是不一样的，应该是正常的吧
+
+## 6. ERRO[0000] 停止容器 bird 失败: no such process           
+
+不知道为什么我后台运行的容器没有显示进程可能是哪里被直接删除了
+
+于是我再启动后台时手动添加休眠这样进程就不会被删除了
+```shell
+./MiniDocker run --name bird -d sleep 3600
+```
