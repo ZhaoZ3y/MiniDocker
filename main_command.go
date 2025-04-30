@@ -64,6 +64,10 @@ var runCommand = &cli.Command{
 			commandArray = append(commandArray, arg)
 		}
 
+		// 获取镜像名
+		imageName := commandArray[0]    // 第一个参数是镜像名
+		commandArray = commandArray[1:] // 剩余的参数是命令和参数
+
 		// 获取是否启用 tty 和交互模式（布尔值）
 		createTty := ctx.Bool("ti")
 		detach := ctx.Bool("d") // 是否后台运行容器
@@ -84,7 +88,7 @@ var runCommand = &cli.Command{
 		volume := ctx.String("v")
 
 		// 执行容器创建与运行逻辑
-		Run(createTty, commandArray, volume, resConf, containerName)
+		Run(createTty, commandArray, volume, resConf, containerName, imageName)
 		return nil
 	},
 }
@@ -108,11 +112,12 @@ var commitCommand = &cli.Command{
 	Name:  "commit",
 	Usage: "提交容器的更改",
 	Action: func(ctx *cli.Context) error {
-		if ctx.NArg() < 1 {
-			return fmt.Errorf("缺少容器名称参数")
+		if ctx.NArg() < 2 {
+			return fmt.Errorf("缺少容器名称参数和镜像名称参数")
 		}
-		imageName := ctx.Args().Get(0) // 获取容器名称
-		commitContainer(imageName)
+		containerName := ctx.Args().Get(0) // 获取容器名称
+		imageName := ctx.Args().Get(1)     // 获取镜像名称
+		commitContainer(containerName, imageName)
 		return nil
 	},
 }

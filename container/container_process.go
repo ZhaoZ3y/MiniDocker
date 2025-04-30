@@ -16,6 +16,9 @@ var (
 	DefaultInfoLocation string = "/var/run/MiniDocker/%s/" // 容器信息存储路径
 	ConfigName          string = "config.json"             // 容器配置文件名
 	ContainerLogFile    string = "container.log"
+	RootURL             string = "/root"               // 容器根目录
+	MntURL              string = "/root/mnt/%s"        // 容器挂载点目录
+	WriteLayerURL       string = "/root/writeLayer/%s" // 容器写层目录
 )
 
 // Info 结构体定义了容器的基本信息
@@ -27,12 +30,13 @@ type Info struct {
 	Command     string `json:"command"`    // 容器内 init 运行命令
 	CreatedTime string `json:"createTime"` // 创建时间
 	Status      string `json:"status"`     // 容器的状态
+	Volume      string `json:"volume"`     // 容器的数据卷
 }
 
 // NewParentProcess 创建一个新的父进程（容器的父进程）
 // tty 表示是否启用终端（比如交互式容器就需要）
 // 返回值包括：创建的 cmd 命令对象 和 写入端 writePipe，用于父子进程通信
-func NewParentProcess(tty bool, volume string, containerName string) (*exec.Cmd, *os.File) {
+func NewParentProcess(tty bool, volume string, containerName string, imageName string) (*exec.Cmd, *os.File) {
 	// 创建匿名管道：用于父子进程之间通信（传参数或控制信号）
 	readPipe, writePipe, err := NewPipe()
 	if err != nil {
@@ -58,24 +62,38 @@ func NewParentProcess(tty bool, volume string, containerName string) (*exec.Cmd,
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 	} else {
+		// 创建日志目录
 		dirURL := fmt.Sprintf(DefaultInfoLocation, containerName)
 		if err := os.MkdirAll(dirURL, 0622); err != nil {
 			logrus.Errorf("创建目录 %v 失败: %v", dirURL, err)
 		}
+
+		// 创建日志文件
 		stdLogFilePath := dirURL + ContainerLogFile
 		stdLogFile, err := os.Create(stdLogFilePath)
 		if err != nil {
 			logrus.Errorf("创建日志文件 %v 失败: %v", stdLogFilePath, err)
 			return nil, nil
 		}
-		// 设置子进程的标准输入输出为日志文件
+
+		// 设置子进程的标准输出和错误输出为日志文件
 		cmd.Stdout = stdLogFile
+		cmd.Stderr = stdLogFile
+
+		// 为非交互式命令提供一个空的输入源
+		devNull, err := os.Open("/dev/null")
+		if err != nil {
+			logrus.Errorf("打开 /dev/null 失败: %v", err)
+			return nil, nil
+		}
+		cmd.Stdin = devNull
 	}
 
 	// 把管道的读端传递给子进程（子进程从这里读取父进程传过来的数据）
 	cmd.ExtraFiles = []*os.File{readPipe}
+	NewWorkSpace(volume, imageName, containerName) // 创建工作空间
 	// 设置子进程的当前工作目录为挂载点目录
-	cmd.Dir = "/root/busybox"
+	cmd.Dir = fmt.Sprintf(MntURL, containerName)
 	return cmd, writePipe
 }
 

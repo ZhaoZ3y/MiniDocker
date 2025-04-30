@@ -19,9 +19,13 @@ import (
 // tty 表示是否绑定终端（类似 docker run -it）
 // commandArray 是用户希望在容器中执行的命令及参数
 // volume 是宿主机与容器的挂载路径
-func Run(tty bool, commandArray []string, volume string, res *subsystems.ResourceConfig, containerName string) {
+func Run(tty bool, commandArray []string, volume string, res *subsystems.ResourceConfig, containerName string, imageName string) {
+	containerID := randStringBytes(10)
+	if containerName == "" {
+		containerName = containerID
+	}
 	// 创建容器父进程和通信管道
-	parent, writePipe := container.NewParentProcess(tty, volume, containerName)
+	parent, writePipe := container.NewParentProcess(tty, volume, containerName, imageName)
 	if parent == nil {
 		logrus.Error("父进程创建失败")
 		return
@@ -33,7 +37,7 @@ func Run(tty bool, commandArray []string, volume string, res *subsystems.Resourc
 	}
 
 	// 记录容器基本信息
-	containerName, err := recordContainerInfo(parent.Process.Pid, commandArray, containerName)
+	containerName, err := recordContainerInfo(parent.Process.Pid, commandArray, containerName, containerID, volume)
 	if err != nil {
 		logrus.Error("容器信息记录失败", err)
 		return
@@ -60,7 +64,8 @@ func Run(tty bool, commandArray []string, volume string, res *subsystems.Resourc
 		// 前台模式，等待容器退出
 		parent.Wait()
 		deleteContainerInfo(containerName)
-		cgroupManager.Destroy() // 确保退出时清理资源
+		container.DeleteWorkSpace(volume, containerName) // 删除容器工作空间
+		cgroupManager.Destroy()                          // 确保退出时清理资源
 	}
 }
 
@@ -74,22 +79,18 @@ func sendInitCommand(commandArray []string, writePipe *os.File) {
 }
 
 // recordContainerInfo 保存容器信息到本地
-func recordContainerInfo(containerPID int, commandAry []string, containerName string) (string, error) {
-	containerID := randStringBytes(10)
+func recordContainerInfo(containerPID int, commandAry []string, containerName string, id string, volume string) (string, error) {
 	currentTime := time.Now().Format("2006-01-02 15:04:05")
 	command := strings.Join(commandAry, "")
 
-	if containerName == "" {
-		containerName = containerID
-	}
-
 	containerInfo := &container.Info{
-		Id:          containerID,
+		Id:          id,
 		Pid:         strconv.Itoa(containerPID),
 		Command:     command,
 		CreatedTime: currentTime,
 		Status:      container.RUNNING,
 		Name:        containerName,
+		Volume:      volume,
 	}
 
 	containerInfoJson, err := json.Marshal(containerInfo)
