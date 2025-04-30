@@ -35,11 +35,14 @@ func ExecContainer(containerName string, comArray []string) {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
+	// 构建容器根文件系统的完整路径
+	containerRootfs := fmt.Sprintf("/root/mnt/%s", containerName)
+
 	// 设置环境变量，供 nsenter 中的 enter_namespace 使用
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("%s=%s", ENV_EXEC_PID, pid),
 		fmt.Sprintf("%s=%s", ENV_EXEC_CMD, cmdStr),
-		fmt.Sprintf("MiniDocker_rootfs=%s", fmt.Sprintf("/root/mnt/%s", containerName)),
+		fmt.Sprintf("MiniDocker_rootfs=%s", containerRootfs),
 	)
 
 	// 重要: 设置正确的 TTY 参数

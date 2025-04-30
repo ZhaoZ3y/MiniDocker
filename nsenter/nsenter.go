@@ -39,7 +39,7 @@ __attribute__((constructor)) void enter_namespace(void) {
         return;  // 没有设置环境变量，直接返回
     }
 
-     char *MiniDocker_cmd;
+    char *MiniDocker_cmd;
     MiniDocker_cmd = getenv("MiniDocker_cmd");
     if (!MiniDocker_cmd) {
         return;  // 没有命令，直接返回
@@ -71,22 +71,21 @@ __attribute__((constructor)) void enter_namespace(void) {
         close(fd);
     }
 
-	// 获取容器挂载目录路径
-	char *MiniDocker_rootfs = getenv("MiniDocker_rootfs");
-	if (!MiniDocker_rootfs) {
-		fprintf(stderr, "未设置挂载目录路径 MiniDocker_rootfs\n");
-		exit(1);
-	}
+    // 获取容器挂载目录路径
+    char *MiniDocker_rootfs = getenv("MiniDocker_rootfs");
+    if (!MiniDocker_rootfs) {
+       fprintf(stderr, "未设置挂载目录路径 MiniDocker_rootfs\n");
+       exit(1);
+    }
 
-	// 切换到容器的根文件系统
-	if (chroot(MiniDocker_rootfs) != 0) {
-		fprintf(stderr, "chroot 到容器挂载目录失败: %s\n", strerror(errno));
-		exit(1);
-	}
+    // 切换到容器的根文件系统
+    if (chroot(MiniDocker_rootfs) != 0) {
+       fprintf(stderr, "chroot 到容器挂载目录失败: %s\n", strerror(errno));
+       exit(1);
+    }
 
-
-    // 切换工作目录
-    if (chdir("/") != 0) {
+    // 切换工作目录到容器的根目录
+    if (chdir("/",) != 0) {
         fprintf(stderr, "切换工作目录失败: %s\n", strerror(errno));
         exit(1);
     }
