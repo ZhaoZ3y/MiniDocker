@@ -107,6 +107,7 @@ func CreateMountPoint(containerName string, imageName string) bool {
 	cmd := exec.Command("mount", "-t", "overlay", "overlay", "-o", options, mountPoint)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	logrus.Infof("执行挂载命令: mount -t overlay overlay -o %s %s", options, mountPoint)
 	if err := cmd.Run(); err != nil {
 		logrus.Errorf("挂载 OverlayFS 失败: %v", err)
 		return false
