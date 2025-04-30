@@ -91,7 +91,9 @@ func CreateMountPoint(containerName string, imageName string) bool {
 	lowerDir := filepath.Join(RootURL, imageName)
 	upperDir := filepath.Join(RootURL, "writeLayer", containerName, "upper")
 	workDir := filepath.Join(RootURL, "writeLayer", containerName, "work")
-	mountPoint := filepath.Join(MntURL, containerName)
+
+	// 这里使用Sprintf格式化挂载点路径
+	mountPoint := fmt.Sprintf(MntURL, containerName)
 
 	// 创建需要的目录
 	dirs := []string{lowerDir, upperDir, workDir, mountPoint}
@@ -102,12 +104,15 @@ func CreateMountPoint(containerName string, imageName string) bool {
 		}
 	}
 
-	// 构造 overlay 挂载参数，并执行 mount 命令
+	// 构造overlay挂载参数并执行mount命令
 	options := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", lowerDir, upperDir, workDir)
+
+	// 日志输出挂载命令，确保路径正确
+	logrus.Infof("执行挂载命令: mount -t overlay overlay -o %s %s", options, mountPoint)
+
 	cmd := exec.Command("mount", "-t", "overlay", "overlay", "-o", options, mountPoint)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	logrus.Infof("执行挂载命令: mount -t overlay overlay -o %s %s", options, mountPoint)
 	if err := cmd.Run(); err != nil {
 		logrus.Errorf("挂载 OverlayFS 失败: %v", err)
 		return false
