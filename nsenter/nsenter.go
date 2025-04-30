@@ -110,7 +110,11 @@ __attribute__((constructor)) void enter_namespace(void) {
 
     // 调试：列出当前根目录内容
     fprintf(stderr, "chroot 后目录内容:\n");
-    system("ls -al /");
+    int status = system("ls -al /");
+	if (status == -1) {
+		fprintf(stderr, "执行命令失败: %s\n", strerror(errno));
+	}
+
 
     // 确保 /proc 在容器内部已挂载
     if (access("/proc/self", F_OK) != 0) {
@@ -138,9 +142,3 @@ __attribute__((constructor)) void enter_namespace(void) {
 }
 */
 import "C"
-
-func init() {
-	// 添加一行 Go 代码以防止编译器忽略该文件
-	// 不做任何实际操作
-	_ = ""
-}
