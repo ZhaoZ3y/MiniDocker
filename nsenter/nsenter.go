@@ -1,13 +1,15 @@
 package nsenter
 
 /*
+#define _GNU_SOURCE
 #include <errno.h>
 #include <sched.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
-#include <unistd.h> // 需要用到 execvp
+#include <unistd.h>
+#include <sys/mount.h>
 
 // 辅助函数：把命令字符串分割成参数数组
 char **split_cmd(char *cmd, int *argc) {
@@ -45,6 +47,13 @@ __attribute__((constructor)) void enter_namespace(void) {
         return;  // 没有命令，直接返回
     }
 
+    // 获取容器挂载目录路径
+    char *MiniDocker_rootfs = getenv("MiniDocker_rootfs");
+    if (!MiniDocker_rootfs) {
+        fprintf(stderr, "未设置挂载目录路径 MiniDocker_rootfs\n");
+        exit(1);
+    }
+
     int i;
     char nspath[1024];
     // 顺序很重要：先进入 uts, ipc, net，再进入 pid，最后进入 mnt
@@ -71,21 +80,14 @@ __attribute__((constructor)) void enter_namespace(void) {
         close(fd);
     }
 
-    // 获取容器挂载目录路径
-    char *MiniDocker_rootfs = getenv("MiniDocker_rootfs");
-    if (!MiniDocker_rootfs) {
-       fprintf(stderr, "未设置挂载目录路径 MiniDocker_rootfs\n");
-       exit(1);
-    }
-
     // 切换到容器的根文件系统
     if (chroot(MiniDocker_rootfs) != 0) {
-       fprintf(stderr, "chroot 到容器挂载目录失败: %s\n", strerror(errno));
-       exit(1);
+        fprintf(stderr, "chroot 到容器挂载目录失败: %s\n", strerror(errno));
+        exit(1);
     }
 
-    // 切换工作目录到容器的根目录
-    if (chdir("/",) != 0) {
+    // 非常重要：切换工作目录到容器的根目录
+    if (chdir("/") != 0) {
         fprintf(stderr, "切换工作目录失败: %s\n", strerror(errno));
         exit(1);
     }
@@ -97,6 +99,14 @@ __attribute__((constructor)) void enter_namespace(void) {
             fprintf(stderr, "挂载 /proc 失败: %s\n", strerror(errno));
             // 这里不退出，因为某些容器可能有特殊配置
         }
+    }
+
+    // 显示当前工作目录，方便调试
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) != NULL) {
+        printf("当前工作目录: %s\n", cwd);
+    } else {
+        fprintf(stderr, "获取当前工作目录失败: %s\n", strerror(errno));
     }
 
     // 分割命令字符串为参数数组
