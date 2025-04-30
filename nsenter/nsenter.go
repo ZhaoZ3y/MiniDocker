@@ -138,3 +138,9 @@ __attribute__((constructor)) void enter_namespace(void) {
 }
 */
 import "C"
+
+func init() {
+	// 添加一行 Go 代码以防止编译器忽略该文件
+	// 不做任何实际操作
+	_ = ""
+}
