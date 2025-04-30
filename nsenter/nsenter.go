@@ -10,198 +10,131 @@ package nsenter
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/mount.h>
-#include <sys/stat.h> // 包含 stat
 
 // 辅助函数：把命令字符串分割成参数数组
 char **split_cmd(char *cmd, int *argc) {
-    // !! 重要：strtok 会修改字符串，getenv 返回的不能修改，必须复制 !!
-    char *cmd_copy = strdup(cmd);
-    if (!cmd_copy) {
-        fprintf(stderr, "C: split_cmd 无法复制命令字符串: %s\n", strerror(errno));
-        *argc = 0;
-        return NULL; // 让调用者处理 NULL
-    }
-
     char **argv = NULL;
-    char *token = strtok(cmd_copy, " "); // 使用副本
+    char *token = strtok(cmd, " ");
     int count = 0;
 
     while (token != NULL) {
         argv = realloc(argv, sizeof(char*) * (count + 1));
-        if (!argv) {
-             fprintf(stderr, "C: split_cmd realloc 失败: %s\n", strerror(errno));
-             free(cmd_copy); // 释放副本
-             *argc = 0;
-             return NULL; // 让调用者处理 NULL
-        }
-        argv[count] = strdup(token); // !! 重要：复制每个 token !!
-        if (!argv[count]) {
-            fprintf(stderr, "C: split_cmd 无法复制 token: %s\n", strerror(errno));
-            // 清理已分配的 tokens
-            for (int j = 0; j < count; j++) free(argv[j]);
-            free(argv);
-            free(cmd_copy);
-            *argc = 0;
-            return NULL;
-        }
+        argv[count] = token;
         count++;
         token = strtok(NULL, " ");
     }
 
     // 最后添加一个 NULL，execvp 需要
     argv = realloc(argv, sizeof(char*) * (count + 1));
-    if (!argv) {
-        fprintf(stderr, "C: split_cmd realloc (NULL terminator) 失败: %s\n", strerror(errno));
-        // 清理已分配的 tokens
-        for (int j = 0; j < count; j++) free(argv[j]);
-        free(argv);
-        free(cmd_copy);
-        *argc = 0;
-        return NULL;
-    }
     argv[count] = NULL;
 
     *argc = count;
-    // free(cmd_copy); // !! 注意：现在不能释放 cmd_copy，因为 argv 中的指针指向它 !!
-    // 但因为我们 strdup 了每个 token，现在可以释放 cmd_copy 了
-    free(cmd_copy);
     return argv;
 }
 
-// 释放 split_cmd 分配的内存
-void free_argv(char **argv, int argc) {
-    if (!argv) return;
-    for (int i = 0; i < argc; i++) {
-        free(argv[i]);
-    }
-    free(argv);
-}
-
-
-// 该函数被标记为 constructor
+// 该函数被标记为 constructor，意思是：在 Go 程序加载这个包时，
+// 这段 C 代码会自动执行，不需要手动调用。
 __attribute__((constructor)) void enter_namespace(void) {
-    fprintf(stderr, "C: enter_namespace constructor running in PID: %d\n", getpid()); // 调试
-
-    char *MiniDocker_pid = getenv("MiniDocker_pid");
-    // !! 重要：如果 getenv 失败，必须 exit !!
+    char *MiniDocker_pid;
+    MiniDocker_pid = getenv("MiniDocker_pid");
     if (!MiniDocker_pid) {
-        //fprintf(stderr, "C: 环境变量 MiniDocker_pid 未设置, 提前返回.\n"); // Debug
-        //return; // !! 错误：不能返回，否则 Go 代码会继续执行 !!
-        fprintf(stderr, "C: 错误：环境变量 MiniDocker_pid 未设置。\n");
-        exit(1); // 必须退出
+        return;  // 没有设置环境变量，直接返回
     }
-    fprintf(stderr, "C: 收到 MiniDocker_pid: %s\n", MiniDocker_pid); // 调试
 
-    char *MiniDocker_cmd = getenv("MiniDocker_cmd");
-    // !! 重要：如果 getenv 失败，必须 exit !!
+    char *MiniDocker_cmd;
+    MiniDocker_cmd = getenv("MiniDocker_cmd");
     if (!MiniDocker_cmd) {
-        //fprintf(stderr, "C: 环境变量 MiniDocker_cmd 未设置, 提前返回.\n"); // Debug
-        //return; // !! 错误 !!
-        fprintf(stderr, "C: 错误：环境变量 MiniDocker_cmd 未设置。\n");
-        exit(1); // 必须退出
+        return;  // 没有命令，直接返回
     }
-     fprintf(stderr, "C: 收到 MiniDocker_cmd: %s\n", MiniDocker_cmd); // 调试
 
+    // 获取容器挂载目录路径
     char *MiniDocker_rootfs = getenv("MiniDocker_rootfs");
-    // !! 重要：如果 getenv 失败，必须 exit !!
     if (!MiniDocker_rootfs) {
-        fprintf(stderr, "C: 错误: 环境变量 MiniDocker_rootfs 未设置。\n");
-        exit(1); // 必须退出
+        fprintf(stderr, "未设置挂载目录路径 MiniDocker_rootfs\n");
+        exit(1);
     }
-    fprintf(stderr, "C: 收到容器根目录路径: %s\n", MiniDocker_rootfs); // 调试
+
+    fprintf(stderr, "容器根目录路径: %s\n", MiniDocker_rootfs);
 
     int i;
     char nspath[1024];
-    char *namespaces[] = { "uts", "ipc", "net", "pid", "mnt" }; // 确保顺序合理
+    // 顺序很重要：先进入 uts, ipc, net，再进入 pid，最后进入 mnt
+    char *namespaces[] = { "uts", "ipc", "net", "pid", "mnt" };
 
+    // 遍历所有需要进入的 namespace
     for (i = 0; i < 5; i++) {
+        // 构造 namespace 文件的路径，例如 /proc/1234/ns/ipc
         sprintf(nspath, "/proc/%s/ns/%s", MiniDocker_pid, namespaces[i]);
+
+        // 打开 namespace 文件，获得文件描述符
         int fd = open(nspath, O_RDONLY);
         if (fd < 0) {
-            fprintf(stderr, "C: 打开命名空间 %s (%s) 失败: %s\n", namespaces[i], nspath, strerror(errno));
-             // 不一定是致命错误，有些容器可能没有全部隔离
-             // 但对于 exec，mnt 和 pid 通常是必须的
-             if (strcmp(namespaces[i], "mnt") == 0 || strcmp(namespaces[i], "pid") == 0) {
-                 exit(1);
-             }
-             continue; // 尝试继续其他的
+            fprintf(stderr, "打开命名空间 %s 失败: %s\n", namespaces[i], strerror(errno));
+            exit(1);
         }
 
-        // 使用 setns 进入命名空间
+        // 通过 setns 系统调用进入指定的 namespace
         if (setns(fd, 0) == -1) {
-            fprintf(stderr, "C: setns 进入命名空间 %s 失败: %s\n", namespaces[i], strerror(errno));
-             close(fd);
-             // 同上，mnt 和 pid 失败是致命的
-             if (strcmp(namespaces[i], "mnt") == 0 || strcmp(namespaces[i], "pid") == 0) {
-                 exit(1);
-             }
+            fprintf(stderr, "进入命名空间 %s 失败: %s\n", namespaces[i], strerror(errno));
+            close(fd);
+            exit(1);
         }
         close(fd);
-        fprintf(stderr, "C: 成功进入命名空间 %s\n", namespaces[i]); // 调试
     }
 
-    // 切换根文件系统
-    fprintf(stderr, "C: 尝试 chroot 到 %s\n", MiniDocker_rootfs); // 调试
+	// 打印切换前的工作目录，用于调试
+       char cwd_before[1024];
+    if (getcwd(cwd_before, sizeof(cwd_before)) != NULL) {
+        fprintf(stderr, "chroot 前工作目录: %s\n", cwd_before);
+    }
+
+    fprintf(stderr, "即将 chroot 到: %s\n", MiniDocker_rootfs);
+
+    // 切换到容器的根文件系统
     if (chroot(MiniDocker_rootfs) != 0) {
-        fprintf(stderr, "C: chroot 到 %s 失败: %s\n", MiniDocker_rootfs, strerror(errno));
-        exit(1); // chroot 失败是致命的
+        fprintf(stderr, "chroot 到容器挂载目录失败: %s\n", strerror(errno));
+        exit(1);
     }
-    fprintf(stderr, "C: chroot 成功\n"); // 调试
 
-    // !! 切换工作目录到新的根目录 "/" !!
-    fprintf(stderr, "C: 尝试 chdir 到 \"/\"\n"); // 调试
+    // 切换工作目录
     if (chdir("/") != 0) {
-        fprintf(stderr, "C: chdir 到 \"/\" 失败: %s\n", strerror(errno));
-        exit(1); // 切换 CWD 失败是致命的
+        fprintf(stderr, "切换工作目录失败: %s\n", strerror(errno));
+        exit(1);
     }
-     // 调试：打印切换后的 CWD
+
+    // 打印 chroot 后的工作目录
     char cwd_after[1024];
     if (getcwd(cwd_after, sizeof(cwd_after)) != NULL) {
-        fprintf(stderr, "C: chdir 后 getcwd() 结果: %s\n", cwd_after);
-    } else {
-        fprintf(stderr, "C: chdir 后 getcwd() 失败: %s\n", strerror(errno));
+        fprintf(stderr, "chroot 后工作目录: %s\n", cwd_after);
     }
 
-    // 挂载 proc (可选但推荐)
-    // 检查 /proc 是否存在并且是目录
-    struct stat st;
-    if (stat("/proc", &st) != 0 || !S_ISDIR(st.st_mode)) {
-        fprintf(stderr, "C: /proc 不存在或不是目录, 尝试挂载...\n");
+    // 调试：列出当前根目录内容
+    fprintf(stderr, "chroot 后目录内容:\n");
+    system("ls -al /");
+
+    // 确保 /proc 在容器内部已挂载
+    if (access("/proc/self", F_OK) != 0) {
         if (mount("proc", "/proc", "proc", 0, NULL) != 0) {
-            // 对于很多命令(如ps)，proc是必须的，挂载失败可能是问题
-            fprintf(stderr, "C: 警告: 挂载 /proc 失败: %s\n", strerror(errno));
-            // 不退出，但需要注意
-        } else {
-             fprintf(stderr, "C: 成功挂载 /proc\n");
+            fprintf(stderr, "挂载 /proc 失败: %s\n", strerror(errno));
         }
-    } else {
-         fprintf(stderr, "C: /proc 已存在\n");
     }
 
-
-    // 分割命令
+    // 分割命令字符串为参数数组
     int argc = 0;
-    // !! 传递 MiniDocker_cmd 的副本 !!
     char **argv = split_cmd(MiniDocker_cmd, &argc);
     if (argv == NULL || argc == 0) {
-        fprintf(stderr, "C: 命令解析失败或命令为空\n");
-        exit(1); // 解析失败是致命的
+        fprintf(stderr, "命令解析失败\n");
+        exit(1);
     }
 
-    // 打印将要执行的命令用于调试
-    fprintf(stderr, "C: 即将执行命令:");
-    for(int k=0; k<argc; k++) {
-        fprintf(stderr, " %s", argv[k]);
-    }
-    fprintf(stderr, "\n");
-
-    // 执行命令
+    // 使用 execvp 执行命令
+    // 在执行前再次确认工作目录是根目录
+    fprintf(stderr, "即将执行命令: %s\n", MiniDocker_cmd);
     execvp(argv[0], argv);
 
-    // !! 如果 execvp 返回，说明它失败了 !!
-    fprintf(stderr, "C: execvp 执行 %s 失败: %s\n", argv[0], strerror(errno));
-    // free_argv(argv, argc); // 在 exit 前理论上可以省略，但好习惯是释放
-    exit(1); // execvp 失败必须退出
+    // 如果 execvp 返回，说明执行失败
+    fprintf(stderr, "执行命令 %s 失败: %s\n", argv[0], strerror(errno));
+    exit(1);
 }
 */
-import "C" // 确保 C 代码被编译和链接
+import "C"

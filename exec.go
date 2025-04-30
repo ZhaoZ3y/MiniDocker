@@ -10,63 +10,57 @@ import (
 )
 
 // 定义环境变量名称
-const ENV_EXEC_PID = "MiniDocker_pid"
-const ENV_EXEC_CMD = "MiniDocker_cmd"
-const ENV_EXEC_ROOTFS = "MiniDocker_rootfs" // 保持一致
+const ENV_EXEC_PID = "MiniDocker_pid" // 要进入的目标容器进程 PID
+const ENV_EXEC_CMD = "MiniDocker_cmd" // 要在容器中执行的命令
 
-// ExecContainer 函数 (基本不变, 但可以移除 SysProcAttr 中的 Cloneflags)
+// ExecContainer 用于在指定容器内执行命令
 func ExecContainer(containerName string, comArray []string) {
-	pid, err := GetContainerPidByName(containerName) // 确保此函数实现正确
+	// 通过容器名查找对应的 PID
+	pid, err := GetContainerPidByName(containerName)
 	if err != nil {
-		logrus.Errorf("ExecContainer 获取容器 %s 的 PID 失败: %v", containerName, err)
+		logrus.Errorf("ExecContainer getContainerPidByName %s 发生错误 %v", containerName, err)
 		return
 	}
 
+	// 将用户输入的命令数组转成空格分隔的字符串，比如 ["ls", "-l"] -> "ls -l"
 	cmdStr := strings.Join(comArray, " ")
 	logrus.Infof("容器的 PID: %s", pid)
 	logrus.Infof("要执行的命令: %s", cmdStr)
 
-	// 考虑让根目录路径更灵活，例如从配置或容器信息中读取
+	// 构建容器根文件系统的完整路径
 	containerRootfs := fmt.Sprintf("/root/mnt/%s", containerName)
 	logrus.Infof("容器根文件系统路径: %s", containerRootfs)
 
+	// 验证容器根文件系统路径是否存在
 	if _, err := os.Stat(containerRootfs); os.IsNotExist(err) {
-		logrus.Errorf("容器根文件系统路径 %s 不存在", containerRootfs)
+		logrus.Errorf("容器根文件系统路径不存在: %s", containerRootfs)
 		return
 	}
 
-	// 重新执行自身，触发 C constructor
+	// 创建一个新的命令：再次执行自己（/proc/self/exe），并传递参数 "exec"
 	cmd := exec.Command("/proc/self/exe", "exec")
+
+	// 将当前进程的标准输入输出错误传递给新进程，保持一致
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr // 将标准错误也传递下去，以便看到 C 代码的 fprintf
+	cmd.Stderr = os.Stderr
 
-	// 设置环境变量给 C constructor
+	// 设置环境变量，供 nsenter 中的 enter_namespace 使用
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("%s=%s", ENV_EXEC_PID, pid),
 		fmt.Sprintf("%s=%s", ENV_EXEC_CMD, cmdStr),
-		fmt.Sprintf("%s=%s", ENV_EXEC_ROOTFS, containerRootfs),
+		fmt.Sprintf("MiniDocker_rootfs=%s", containerRootfs),
 	)
 
-	// SysProcAttr: Setctty 和 Setsid 对于交互式 shell 很重要
-	// CLONE_NEWNS 可能不再需要，因为 setns 在 C 代码中处理挂载命名空间
+	// 重要: 设置正确的 TTY 参数
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		// Cloneflags: syscall.CLONE_NEWNS, // 可以尝试移除
-		Setctty: true, // 设置控制终端
-		Setsid:  true, // 创建新会话
+		Cloneflags: syscall.CLONE_NEWNS, // 新的挂载命名空间
+		Setctty:    true,                // 设置控制终端
+		Setsid:     true,                // 创建新会话
 	}
 
-	// 运行命令。如果 C 代码的 execvp 成功，Run() 不会返回错误。
-	// 如果 C 代码 exit(1)，Run() 会返回 ExitError。
+	// 启动新进程，进入容器的 namespace 并执行命令
 	if err := cmd.Run(); err != nil {
-		// 这里只应该在 C 代码 exit 非 0 时或启动失败时打印
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			// C 代码 exit 非 0
-			logrus.Debugf("容器命令执行失败，C 代码退出状态: %d", exitErr.ExitCode())
-		} else {
-			// 其他启动错误
-			logrus.Errorf("启动容器命令进程失败: %v", err)
-		}
-		// 不再打印 "执行容器命令 ... 失败"，因为 C 代码已经打印了具体错误
+		logrus.Errorf("执行容器 %s 发生错误 %v", containerName, err)
 	}
 }

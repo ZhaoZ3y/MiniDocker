@@ -7,6 +7,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 	"os"
+	"os/exec"
+	"strings"
 )
 
 // runCommand 命令定义：用于创建并运行一个容器
@@ -149,12 +151,48 @@ var execCommand = &cli.Command{
 	Name:  "exec",
 	Usage: "在容器中执行命令",
 	Action: func(ctx *cli.Context) error {
+		// 这里检查环境变量，表示我们已经在容器内部了
 		if os.Getenv(ENV_EXEC_PID) != "" {
-			logrus.Infof("pid callback pid %d", os.Getgid())
-			return nil
+			logrus.Infof("pid callback pid %d", os.Getpid())
+
+			// 强制确保当前在容器根目录下
+			if err := os.Chdir("/"); err != nil {
+				logrus.Errorf("切换到根目录失败: %v", err)
+			}
+
+			// 记录当前工作目录
+			cwd, err := os.Getwd()
+			if err == nil {
+				logrus.Infof("当前工作目录: %s", cwd)
+			} else {
+				logrus.Errorf("获取工作目录失败: %v", err)
+			}
+
+			// 获取要执行的命令
+			cmdStr := os.Getenv(ENV_EXEC_CMD)
+			if cmdStr == "" {
+				return fmt.Errorf("没有指定要执行的命令")
+			}
+
+			// 分割命令字符串为命令和参数
+			// 这里需要特别注意空格分隔的处理
+			cmdParts := strings.Fields(cmdStr) // 使用 Fields 更好地处理多个空格
+			if len(cmdParts) == 0 {
+				return fmt.Errorf("命令为空")
+			}
+
+			// 创建命令
+			cmd := exec.Command(cmdParts[0], cmdParts[1:]...)
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			cmd.Dir = "/" // 强制设置工作目录为根目录
+
+			// 执行命令
+			return cmd.Run()
 		}
 
-		// 检查参数数量
+		// 原有的代码，处理非容器内部的情况
 		if ctx.NArg() < 2 {
 			return fmt.Errorf("缺少容器名称和命令参数")
 		}
@@ -164,9 +202,9 @@ var execCommand = &cli.Command{
 			commandArray = append(commandArray, arg)
 		}
 
-		// 调用 ExecContainer 函数来设置环境并重新执行自身，触发 C 代码
+		// 调用 ExecContainer 函数
 		ExecContainer(containerName, commandArray)
-		return nil // ExecContainer 内部处理了执行流程
+		return nil
 	},
 }
 
