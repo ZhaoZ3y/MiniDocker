@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "MiniDocker/nsenter" // 引入 nsenter 包，自动执行其中的 C 代码
 	"fmt"
 	"github.com/sirupsen/logrus"
 	"os"
