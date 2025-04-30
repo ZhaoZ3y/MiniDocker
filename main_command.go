@@ -154,6 +154,20 @@ var execCommand = &cli.Command{
 		// 这里检查环境变量，表示我们已经在容器内部了
 		if os.Getenv(ENV_EXEC_PID) != "" {
 			logrus.Infof("pid callback pid %d", os.Getpid())
+
+			// 强制确保当前在容器根目录下
+			if err := os.Chdir("/"); err != nil {
+				logrus.Errorf("切换到根目录失败: %v", err)
+			}
+
+			// 记录当前工作目录
+			cwd, err := os.Getwd()
+			if err == nil {
+				logrus.Infof("当前工作目录: %s", cwd)
+			} else {
+				logrus.Errorf("获取工作目录失败: %v", err)
+			}
+
 			// 获取要执行的命令
 			cmdStr := os.Getenv(ENV_EXEC_CMD)
 			if cmdStr == "" {
@@ -161,7 +175,8 @@ var execCommand = &cli.Command{
 			}
 
 			// 分割命令字符串为命令和参数
-			cmdParts := strings.Split(cmdStr, " ")
+			// 这里需要特别注意空格分隔的处理
+			cmdParts := strings.Fields(cmdStr) // 使用 Fields 更好地处理多个空格
 			if len(cmdParts) == 0 {
 				return fmt.Errorf("命令为空")
 			}
@@ -171,6 +186,7 @@ var execCommand = &cli.Command{
 			cmd.Stdin = os.Stdin
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
+			cmd.Dir = "/" // 强制设置工作目录为根目录
 
 			// 执行命令
 			return cmd.Run()
@@ -185,6 +201,8 @@ var execCommand = &cli.Command{
 		for _, arg := range ctx.Args().Tail() {
 			commandArray = append(commandArray, arg)
 		}
+
+		// 调用 ExecContainer 函数
 		ExecContainer(containerName, commandArray)
 		return nil
 	},

@@ -27,6 +27,16 @@ func ExecContainer(containerName string, comArray []string) {
 	logrus.Infof("容器的 PID: %s", pid)
 	logrus.Infof("要执行的命令: %s", cmdStr)
 
+	// 构建容器根文件系统的完整路径
+	containerRootfs := fmt.Sprintf("/root/mnt/%s", containerName)
+	logrus.Infof("容器根文件系统路径: %s", containerRootfs)
+
+	// 验证容器根文件系统路径是否存在
+	if _, err := os.Stat(containerRootfs); os.IsNotExist(err) {
+		logrus.Errorf("容器根文件系统路径不存在: %s", containerRootfs)
+		return
+	}
+
 	// 创建一个新的命令：再次执行自己（/proc/self/exe），并传递参数 "exec"
 	cmd := exec.Command("/proc/self/exe", "exec")
 
@@ -34,9 +44,6 @@ func ExecContainer(containerName string, comArray []string) {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-
-	// 构建容器根文件系统的完整路径
-	containerRootfs := fmt.Sprintf("/root/mnt/%s", containerName)
 
 	// 设置环境变量，供 nsenter 中的 enter_namespace 使用
 	cmd.Env = append(os.Environ(),

@@ -54,6 +54,8 @@ __attribute__((constructor)) void enter_namespace(void) {
         exit(1);
     }
 
+    fprintf(stderr, "容器根目录路径: %s\n", MiniDocker_rootfs);
+
     int i;
     char nspath[1024];
     // 顺序很重要：先进入 uts, ipc, net，再进入 pid，最后进入 mnt
@@ -80,6 +82,12 @@ __attribute__((constructor)) void enter_namespace(void) {
         close(fd);
     }
 
+    // 打印切换前的工作目录，用于调试
+    char cwd_before[1024];
+    if (getcwd(cwd_before, sizeof(cwd_before)) != NULL) {
+        fprintf(stderr, "chroot 前工作目录: %s\n", cwd_before);
+    }
+
     // 切换到容器的根文件系统
     if (chroot(MiniDocker_rootfs) != 0) {
         fprintf(stderr, "chroot 到容器挂载目录失败: %s\n", strerror(errno));
@@ -92,6 +100,12 @@ __attribute__((constructor)) void enter_namespace(void) {
         exit(1);
     }
 
+    // 打印切换后的工作目录，用于调试
+    char cwd_after[1024];
+    if (getcwd(cwd_after, sizeof(cwd_after)) != NULL) {
+        fprintf(stderr, "chroot 后工作目录: %s\n", cwd_after);
+    }
+
     // 确保 /proc 在容器内部已挂载
     if (access("/proc/self", F_OK) != 0) {
         // 如果 /proc 不存在或无法访问，尝试挂载
@@ -101,23 +115,17 @@ __attribute__((constructor)) void enter_namespace(void) {
         }
     }
 
-    // 显示当前工作目录，方便调试
-    char cwd[1024];
-    if (getcwd(cwd, sizeof(cwd)) != NULL) {
-        printf("当前工作目录: %s\n", cwd);
-    } else {
-        fprintf(stderr, "获取当前工作目录失败: %s\n", strerror(errno));
-    }
-
     // 分割命令字符串为参数数组
     int argc = 0;
     char **argv = split_cmd(MiniDocker_cmd, &argc);
     if (argv == NULL || argc == 0) {
-        fprintf(stderr, "split_cmd failed\n");
+        fprintf(stderr, "命令解析失败\n");
         exit(1);
     }
 
     // 使用 execvp 执行命令
+    // 在执行前再次确认工作目录是根目录
+    fprintf(stderr, "即将执行命令: %s\n", MiniDocker_cmd);
     execvp(argv[0], argv);
 
     // 如果 execvp 返回，说明执行失败
