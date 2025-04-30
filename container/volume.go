@@ -45,15 +45,32 @@ func CreateReadOnlyLayer(imageName string) error {
 		logrus.Errorf("判断目录 %s 是否存在失败: %v", unTarFolderUrl, err)
 	}
 
-	// 如果 busybox 目录不存在，创建目录并解压
-	if !exist {
+	needExtract := true
+	if exist {
+		// 检查目录是否为空
+		entries, err := os.ReadDir(unTarFolderUrl)
+		if err != nil {
+			logrus.Errorf("读取目录 %s 内容失败: %v", unTarFolderUrl, err)
+		} else if len(entries) > 0 {
+			// 目录非空，说明已经解压过
+			needExtract = false
+		}
+	}
+
+	if needExtract {
 		if err := os.MkdirAll(unTarFolderUrl, 0777); err != nil {
 			logrus.Errorf("创建目录 %s 失败: %v", unTarFolderUrl, err)
+			return err
 		}
 		if _, err := exec.Command("tar", "-xvf", imageUrl, "-C", unTarFolderUrl).CombinedOutput(); err != nil {
 			logrus.Errorf("解压目录 %s 失败: %v", unTarFolderUrl, err)
+			return err
 		}
+		logrus.Infof("镜像 %s 解压完成", imageUrl)
+	} else {
+		logrus.Infof("只读层 %s 已存在且非空，跳过解压", unTarFolderUrl)
 	}
+
 	// 如果 busybox 目录已经存在，直接返回
 	// 这里可以添加一些日志或提示信息
 	logrus.Infof("只读层 %s 已存在，跳过解压", unTarFolderUrl)

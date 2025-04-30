@@ -39,6 +39,7 @@ func ExecContainer(containerName string, comArray []string) {
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("%s=%s", ENV_EXEC_PID, pid),
 		fmt.Sprintf("%s=%s", ENV_EXEC_CMD, cmdStr),
+		fmt.Sprintf("MiniDocker_rootfs=%s", fmt.Sprintf("/root/mnt/%s", containerName)),
 	)
 
 	// 重要: 设置正确的 TTY 参数

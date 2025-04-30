@@ -71,15 +71,19 @@ __attribute__((constructor)) void enter_namespace(void) {
         close(fd);
     }
 
-    // 获取容器根目录路径并切换到容器的文件系统
-    char rootfs_path[1024];
-    sprintf(rootfs_path, "/proc/%s/root", MiniDocker_pid);
+	// 获取容器挂载目录路径
+	char *MiniDocker_rootfs = getenv("MiniDocker_rootfs");
+	if (!MiniDocker_rootfs) {
+		fprintf(stderr, "未设置挂载目录路径 MiniDocker_rootfs\n");
+		exit(1);
+	}
 
-    // 切换到容器的根文件系统
-    if (chroot(rootfs_path) != 0) {
-        fprintf(stderr, "chroot 到容器根目录失败: %s\n", strerror(errno));
-        exit(1);
-    }
+	// 切换到容器的根文件系统
+	if (chroot(MiniDocker_rootfs) != 0) {
+		fprintf(stderr, "chroot 到容器挂载目录失败: %s\n", strerror(errno));
+		exit(1);
+	}
+
 
     // 切换工作目录
     if (chdir("/") != 0) {
