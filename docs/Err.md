@@ -633,3 +633,10 @@ func ExecContainer(containerName string, comArray []string) {
 ```shell
 ./MiniDocker run --name bird -d sleep 3600
 ```
+## 7. 无法运行Cgo文件
+后续查阅文档才知道需要开启Cgo
+```shell
+CGO_ENABLED=1 go build -o MiniDocker main.go
+```
+
+## 8. 打开命名空间 uts 失败: No such file or directory
