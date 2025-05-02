@@ -52,6 +52,11 @@ var runCommand = &cli.Command{
 			Name:  "name",
 			Usage: "设置容器的名称，例如: --name my_container",
 		},
+		// -e 参数：用于设置环境变量
+		&cli.StringSliceFlag{
+			Name:  "e",
+			Usage: "设置环境变量，例如: -e VAR=value",
+		},
 	},
 	Action: func(ctx *cli.Context) error {
 		// 参数检查：至少需要一个命令参数（即用户要运行的程序）
@@ -86,9 +91,10 @@ var runCommand = &cli.Command{
 		containerName := ctx.String("name")
 		// 获取用户指定的挂载目录（形如 /宿主机路径:/容器路径）
 		volume := ctx.String("v")
-
+		// envSlice 是一个字符串切片，用于存储环境变量
+		envSlice := ctx.StringSlice("e") // 获取环境变量参数
 		// 执行容器创建与运行逻辑
-		Run(createTty, commandArray, volume, resConf, containerName, imageName)
+		Run(createTty, commandArray, volume, resConf, containerName, imageName, envSlice)
 		return nil
 	},
 }

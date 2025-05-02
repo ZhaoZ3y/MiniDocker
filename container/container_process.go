@@ -36,7 +36,7 @@ type Info struct {
 // NewParentProcess 创建一个新的父进程（容器的父进程）
 // tty 表示是否启用终端（比如交互式容器就需要）
 // 返回值包括：创建的 cmd 命令对象 和 写入端 writePipe，用于父子进程通信
-func NewParentProcess(tty bool, volume string, containerName string, imageName string) (*exec.Cmd, *os.File) {
+func NewParentProcess(tty bool, volume string, containerName string, imageName string, envSlice []string) (*exec.Cmd, *os.File) {
 	// 创建匿名管道：用于父子进程之间通信（传参数或控制信号）
 	readPipe, writePipe, err := NewPipe()
 	if err != nil {
@@ -91,6 +91,7 @@ func NewParentProcess(tty bool, volume string, containerName string, imageName s
 
 	// 把管道的读端传递给子进程（子进程从这里读取父进程传过来的数据）
 	cmd.ExtraFiles = []*os.File{readPipe}
+	cmd.Env = append(os.Environ(), envSlice...)    // 设置环境变量
 	NewWorkSpace(volume, imageName, containerName) // 创建工作空间
 	// 设置子进程的当前工作目录为挂载点目录
 	cmd.Dir = fmt.Sprintf(MntURL, containerName)

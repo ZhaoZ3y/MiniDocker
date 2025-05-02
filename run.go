@@ -19,13 +19,13 @@ import (
 // tty 表示是否绑定终端（类似 docker run -it）
 // commandArray 是用户希望在容器中执行的命令及参数
 // volume 是宿主机与容器的挂载路径
-func Run(tty bool, commandArray []string, volume string, res *subsystems.ResourceConfig, containerName string, imageName string) {
+func Run(tty bool, commandArray []string, volume string, res *subsystems.ResourceConfig, containerName string, imageName string, envSlice []string) {
 	containerID := randStringBytes(10)
 	if containerName == "" {
 		containerName = containerID
 	}
 	// 创建容器父进程和通信管道
-	parent, writePipe := container.NewParentProcess(tty, volume, containerName, imageName)
+	parent, writePipe := container.NewParentProcess(tty, volume, containerName, imageName, envSlice)
 	if parent == nil {
 		logrus.Error("父进程创建失败")
 		return

@@ -162,9 +162,8 @@ func PathExists(path string) (bool, error) {
 
 // DeleteWorkSpace 删除容器工作空间，包含卸载挂载点和清理写层目录。
 // 参数：
-// - rootURL：容器文件系统的根路径
-// - mountURL：挂载点路径
 // - volume：卷配置字符串，如果非空则表示容器挂载了卷
+// - containerName：容器名称
 func DeleteWorkSpace(volume string, containerName string) {
 	if volume != "" {
 		// 如果挂载了卷，解析卷路径
@@ -186,22 +185,23 @@ func DeleteWorkSpace(volume string, containerName string) {
 
 // DeleteMountPoint 卸载挂载点并删除挂载点目录。
 // 参数：
-// - rootURL：容器根路径（本函数中未使用）
-// - mountURL：挂载点路径
-// DeleteMountPoint 卸载挂载点并删除挂载点目录。
+// - containerName：容器名称
 func DeleteMountPoint(containerName string) error {
 	mntURL := fmt.Sprintf(MntURL, containerName)
-	// 执行 umount 命令卸载挂载点
-	_, err := exec.Command("umount", mntURL).CombinedOutput()
-	if err != nil {
+	// 强制卸载挂载点
+	cmd := exec.Command("umount", "--lazy", mntURL) // 使用 --lazy 强制卸载
+	if err := cmd.Run(); err != nil {
 		logrus.Errorf("卸载挂载点 %s 失败: %v", mntURL, err)
 		return err
 	}
+
 	// 删除挂载点目录
 	if err := os.RemoveAll(mntURL); err != nil {
 		logrus.Errorf("删除挂载点目录 %s 失败: %v", mntURL, err)
 		return err
 	}
+
+	logrus.Infof("成功删除挂载点目录 %s", mntURL)
 	return nil
 }
 
@@ -236,10 +236,13 @@ func DeleteMountPointWithVolume(volumeURLs []string, containerName string) error
 
 // DeleteWriteLayer 删除容器的写层目录。
 // 参数：
-// - rootURL：容器根路径，写层目录位于 rootURL/writeLayer/
+// - containerName：容器名称
 func DeleteWriteLayer(containerName string) {
 	writeURL := fmt.Sprintf(WriteLayerURL, containerName)
+	// 强制删除写层目录
 	if err := os.RemoveAll(writeURL); err != nil {
 		logrus.Errorf("删除写层目录 %s 失败: %v", writeURL, err)
+	} else {
+		logrus.Infof("成功删除写层目录 %s", writeURL)
 	}
 }
