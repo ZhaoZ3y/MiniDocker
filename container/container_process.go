@@ -93,6 +93,7 @@ func NewParentProcess(tty bool, volume string, containerName string, imageName s
 	cmd.ExtraFiles = []*os.File{readPipe}
 	cmd.Env = append(os.Environ(), envSlice...)    // 设置环境变量
 	NewWorkSpace(volume, imageName, containerName) // 创建工作空间
+	logrus.Infof("传递给容器的环境变量: %v", envSlice)
 	// 设置子进程的当前工作目录为挂载点目录
 	cmd.Dir = fmt.Sprintf(MntURL, containerName)
 	return cmd, writePipe

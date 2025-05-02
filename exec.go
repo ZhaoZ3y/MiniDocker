@@ -65,7 +65,6 @@ func ExecContainer(containerName string, comArray []string) {
 	// 重要: 设置正确的 TTY 参数
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Cloneflags: syscall.CLONE_NEWNS, // 新的挂载命名空间
-		Setctty:    true,                // 设置控制终端
 		Setsid:     true,                // 创建新会话
 	}
 

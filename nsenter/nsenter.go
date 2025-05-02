@@ -81,7 +81,7 @@ __attribute__((constructor)) void enter_namespace(void) {
     }
 
 	// 打印切换前的工作目录，用于调试
-       char cwd_before[1024];
+	char cwd_before[1024];
     if (getcwd(cwd_before, sizeof(cwd_before)) != NULL) {
         fprintf(stderr, "chroot 前工作目录: %s\n", cwd_before);
     }
