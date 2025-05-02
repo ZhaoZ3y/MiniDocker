@@ -24,13 +24,14 @@ var (
 // Info 结构体定义了容器的基本信息
 // 包括 PID、ID、名称、命令、创建时间和状态等字段
 type Info struct {
-	Pid         string `json:"pid"`        // 容器的 init 进程在宿主机上的 PID
-	Id          string `json:"id"`         // 容器 ID
-	Name        string `json:"name"`       // 容器名
-	Command     string `json:"command"`    // 容器内 init 运行命令
-	CreatedTime string `json:"createTime"` // 创建时间
-	Status      string `json:"status"`     // 容器的状态
-	Volume      string `json:"volume"`     // 容器的数据卷
+	Pid         string   `json:"pid"`         // 容器的 init 进程在宿主机上的 PID
+	Id          string   `json:"id"`          // 容器 ID
+	Name        string   `json:"name"`        // 容器名
+	Command     string   `json:"command"`     // 容器内 init 运行命令
+	CreatedTime string   `json:"createTime"`  // 创建时间
+	Status      string   `json:"status"`      // 容器的状态
+	Volume      string   `json:"volume"`      // 容器的数据卷
+	PortMapping []string `json:"portMapping"` // 容器的端口映射
 }
 
 // NewParentProcess 创建一个新的父进程（容器的父进程）
