@@ -55,12 +55,13 @@ func (ipam *IPAM) load() error {
 
 // dump 将分配信息保存到文件
 func (ipam *IPAM) dump() error {
+	logrus.Infof("正在写入 subnet.json 文件")
 	// 获取配置文件所在的目录
 	ipamConfigFileDir, _ := path.Split(ipam.SubnetAllocatorPath)
 	// 如果目录不存在，则创建目录
 	if _, err := os.Stat(ipamConfigFileDir); err != nil {
 		if os.IsNotExist(err) {
-			os.MkdirAll(ipamConfigFileDir, 0644)
+			os.MkdirAll(ipamConfigFileDir, 0755)
 		} else {
 			return err
 		}
