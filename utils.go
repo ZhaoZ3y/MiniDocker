@@ -79,7 +79,7 @@ func getContainerInfo(file os.FileInfo) (*container.Info, error) {
 // getEnvsByPid 读取指定 PID 的环境变量
 func getEnvsByPid(pid string) ([]string, error) {
 	// 进程环境变量的路径
-	path := fmt.Sprintf("/proc/%d/environ", pid)
+	path := fmt.Sprintf("/proc/%s/environ", pid)
 	// 读取环境变量文件
 	contentBytes, err := ioutil.ReadFile(path)
 	if err != nil {
