@@ -20,6 +20,7 @@ type IPAM struct {
 // 默认的IP地址分配器实例
 var ipAllocator = &IPAM{
 	SubnetAllocatorPath: ipamDefaultAllocatorPath,
+	Subnets:             &map[string]string{}, // 初始化为空映射
 }
 
 // load 加载已有的IP分配信息
@@ -44,10 +45,15 @@ func (ipam *IPAM) load() error {
 		return err
 	}
 
+	// 如果读取内容为空，则直接返回
+	if n == 0 {
+		return nil
+	}
+
 	// 解析JSON数据
 	err = json.Unmarshal(subnetJson[:n], ipam.Subnets)
 	if err != nil {
-		logrus.Errorf("转储分配信息时出错：%v", err)
+		logrus.Errorf("解析分配信息时出错：%v", err)
 		return err
 	}
 	return nil
@@ -61,17 +67,19 @@ func (ipam *IPAM) dump() error {
 	// 如果目录不存在，则创建目录
 	if _, err := os.Stat(ipamConfigFileDir); err != nil {
 		if os.IsNotExist(err) {
-			os.MkdirAll(ipamConfigFileDir, 0755)
+			if err := os.MkdirAll(ipamConfigFileDir, 0755); err != nil {
+				return err
+			}
 		} else {
 			return err
 		}
 	}
 	// 打开文件准备写入
 	subnetConfigFile, err := os.OpenFile(ipam.SubnetAllocatorPath, os.O_TRUNC|os.O_WRONLY|os.O_CREATE, 0644)
-	defer subnetConfigFile.Close()
 	if err != nil {
 		return err
 	}
+	defer subnetConfigFile.Close()
 
 	// 将子网分配信息转为JSON格式
 	ipamConfigJson, err := json.Marshal(ipam.Subnets)
@@ -90,13 +98,15 @@ func (ipam *IPAM) dump() error {
 
 // Allocate 分配一个IP地址
 func (ipam *IPAM) Allocate(subnet *net.IPNet) (ip net.IP, err error) {
-	// 初始化子网分配信息
-	ipam.Subnets = &map[string]string{}
-
 	// 从文件加载分配信息
 	err = ipam.load()
 	if err != nil {
-		logrus.Errorf("转储分配信息时出错：%v", err)
+		logrus.Errorf("加载分配信息时出错：%v", err)
+	}
+
+	// 确保Subnets不为空
+	if ipam.Subnets == nil {
+		ipam.Subnets = &map[string]string{}
 	}
 
 	_, subnet, _ = net.ParseCIDR(subnet.String())
@@ -131,16 +141,19 @@ func (ipam *IPAM) Allocate(subnet *net.IPNet) (ip net.IP, err error) {
 
 // Release 释放一个已分配的IP地址
 func (ipam *IPAM) Release(subnet *net.IPNet, ipaddr *net.IP) error {
-	// 初始化子网分配信息
-	ipam.Subnets = &map[string]string{}
-
-	_, subnet, _ = net.ParseCIDR(subnet.String())
-
-	// 加载已有分配信息
+	// 从文件加载分配信息
 	err := ipam.load()
 	if err != nil {
-		logrus.Errorf("转储分配信息时出错：%v", err)
+		logrus.Errorf("加载分配信息时出错：%v", err)
 	}
+
+	// 确保Subnets不为空
+	if ipam.Subnets == nil {
+		ipam.Subnets = &map[string]string{}
+		return nil // 如果没有分配信息，则不需要释放
+	}
+
+	_, subnet, _ = net.ParseCIDR(subnet.String())
 
 	// 计算要释放的IP地址在子网中的位置
 	c := 0
@@ -148,6 +161,11 @@ func (ipam *IPAM) Release(subnet *net.IPNet, ipaddr *net.IP) error {
 	releaseIP[3] -= 1
 	for t := uint(4); t > 0; t -= 1 {
 		c += int(releaseIP[t-1]-subnet.IP[t-1]) << ((4 - t) * 8)
+	}
+
+	// 如果该子网没有分配信息，则返回
+	if _, exist := (*ipam.Subnets)[subnet.String()]; !exist {
+		return nil
 	}
 
 	// 标记该IP地址为未分配
