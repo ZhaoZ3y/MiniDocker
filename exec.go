@@ -40,16 +40,25 @@ func ExecContainer(containerName string, comArray []string) {
 
 	// 创建一个新的命令：再次执行自己（/proc/self/exe），并传递参数 "exec"
 	cmd := exec.Command("/proc/self/exe", "exec")
-
 	// 将当前进程的标准输入输出错误传递给新进程，保持一致
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
+	os.Setenv(ENV_EXEC_PID, pid)    // 设置环境变量，供 nsenter 中的 enter_namespace 使用
+	os.Setenv(ENV_EXEC_CMD, cmdStr) // 设置环境变量，供 nsenter 中的 enter_namespace 使用
+
+	containerEnv, err := getEnvsByPid(pid)
+	if err != nil {
+		logrus.Errorf("获取容器环境变量失败: %v", err)
+		return
+	}
+
 	// 设置环境变量，供 nsenter 中的 enter_namespace 使用
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("%s=%s", ENV_EXEC_PID, pid),
 		fmt.Sprintf("%s=%s", ENV_EXEC_CMD, cmdStr),
+		fmt.Sprintf("MiniDocker_env=%s", containerEnv),
 		fmt.Sprintf("MiniDocker_rootfs=%s", containerRootfs),
 	)
 

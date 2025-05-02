@@ -7,6 +7,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"io/ioutil"
 	"os"
+	"strings"
 )
 
 // GetContainerPidByName 根据容器名字获取其 PID
@@ -73,4 +74,20 @@ func getContainerInfo(file os.FileInfo) (*container.Info, error) {
 	}
 	// 返回解析后的容器信息
 	return &containerInfo, nil
+}
+
+// getEnvsByPid 读取指定 PID 的环境变量
+func getEnvsByPid(pid string) ([]string, error) {
+	// 进程环境变量的路径
+	path := fmt.Sprintf("/proc/%d/environ", pid)
+	// 读取环境变量文件
+	contentBytes, err := ioutil.ReadFile(path)
+	if err != nil {
+		logrus.Errorf("读取环境变量失败: %v", err)
+		return nil, err
+	}
+	// 分割环境变量字符串
+	envs := strings.Split(string(contentBytes), "\u0000")
+	// 返回环境变量列表
+	return envs, nil
 }
