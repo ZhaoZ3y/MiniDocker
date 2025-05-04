@@ -104,8 +104,12 @@ var runCommand = &cli.Command{
 		volume := ctx.String("v")
 		// envSlice 是一个字符串切片，用于存储环境变量
 		envSlice := ctx.StringSlice("e") // 获取环境变量参数
+		// network 是网络配置参数
+		network := ctx.String("net")
+		// portmapping 是端口映射参数
+		portmapping := ctx.StringSlice("p") // 获取端口映射参数
 		// 执行容器创建与运行逻辑
-		Run(createTty, commandArray, volume, resConf, containerName, imageName, envSlice)
+		Run(createTty, commandArray, volume, resConf, containerName, imageName, envSlice, network, portmapping)
 		return nil
 	},
 }

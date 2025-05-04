@@ -4,6 +4,7 @@ import (
 	"MiniDocker/cgroup"
 	"MiniDocker/cgroup/subsystems"
 	"MiniDocker/container"
+	"MiniDocker/network"
 	"encoding/json"
 	"fmt"
 	"github.com/sirupsen/logrus"
@@ -19,7 +20,7 @@ import (
 // tty 表示是否绑定终端（类似 docker run -it）
 // commandArray 是用户希望在容器中执行的命令及参数
 // volume 是宿主机与容器的挂载路径
-func Run(tty bool, commandArray []string, volume string, res *subsystems.ResourceConfig, containerName string, imageName string, envSlice []string) {
+func Run(tty bool, commandArray []string, volume string, res *subsystems.ResourceConfig, containerName string, imageName string, envSlice []string, nw string, portmapping []string) {
 	containerID := randStringBytes(10)
 	if containerName == "" {
 		containerName = containerID
@@ -45,16 +46,26 @@ func Run(tty bool, commandArray []string, volume string, res *subsystems.Resourc
 
 	// 创建并配置 Cgroup 管理器
 	cgroupManager := cgroup.NewCgroupManager("MiniDocker-Cgroup")
-
-	// 设置资源限制
-	if err := cgroupManager.Set(res); err != nil {
-		logrus.Error("资源限制设置失败", err)
-		return
-	}
+	defer cgroupManager.Destroy() // 确保退出时清理资源
+	// 设置 Cgroup 资源限制
+	cgroupManager.Set(res)
 	// 将容器进程加入 Cgroup
-	if err := cgroupManager.Apply(parent.Process.Pid); err != nil {
-		logrus.Error("加入 Cgroup 失败", err)
-		return
+	cgroupManager.Apply(parent.Process.Pid)
+
+	if nw != "" {
+		// 初始化网络配置
+		network.Init()
+		// 配置容器网络
+		containerInfo := &container.Info{
+			Id:          containerID,
+			Pid:         strconv.Itoa(parent.Process.Pid),
+			Name:        containerName,
+			PortMapping: portmapping,
+		}
+		if err := network.Connect(nw, containerInfo); err != nil {
+			logrus.Error("网络连接失败", err)
+			return
+		}
 	}
 
 	// 发送用户命令给 init 进程执行
@@ -65,7 +76,6 @@ func Run(tty bool, commandArray []string, volume string, res *subsystems.Resourc
 		parent.Wait()
 		deleteContainerInfo(containerName)
 		container.DeleteWorkSpace(volume, containerName) // 删除容器工作空间
-		cgroupManager.Destroy()                          // 确保退出时清理资源
 	}
 }
 
