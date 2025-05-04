@@ -3,6 +3,7 @@ package main
 import (
 	"MiniDocker/cgroup/subsystems"
 	"MiniDocker/container"
+	"MiniDocker/network"
 	"fmt"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
@@ -243,5 +244,54 @@ var removeCommand = &cli.Command{
 		// 删除容器
 		removeContainer(containerName)
 		return nil
+	},
+}
+
+// networkCommand 命令定义：网络相关命令
+var networkCommand = &cli.Command{
+	Name:  "network",
+	Usage: "网络相关命令",
+	Subcommands: []*cli.Command{
+		{
+			Name:  "create",
+			Usage: "创建网络",
+			Action: func(ctx *cli.Context) error {
+				// 参数检查：至少需要一个网络名称参数
+				if ctx.NArg() < 1 {
+					return fmt.Errorf("缺少网络名称参数")
+				}
+				network.Init() // 初始化网络
+				err := network.CreateNetWork(ctx.String("driver"), ctx.String("subnet"), ctx.Args().Get(0))
+				if err != nil {
+					return fmt.Errorf("创建网络失败: %v", err)
+				}
+				return nil
+			},
+		},
+		{
+			Name:  "list",
+			Usage: "列出网络",
+			Action: func(ctx *cli.Context) error {
+				network.Init()        // 初始化网络
+				network.ListNetwork() // 列出网络
+				return nil
+			},
+		},
+		{
+			Name:  "remove",
+			Usage: "删除网络",
+			Action: func(ctx *cli.Context) error {
+				// 参数检查：至少需要一个网络名称参数
+				if ctx.NArg() < 1 {
+					return fmt.Errorf("缺少网络名称参数")
+				}
+				network.Init() // 初始化网络
+				err := network.DeleteNetwork(ctx.Args().Get(0))
+				if err != nil {
+					return fmt.Errorf("删除网络失败: %v", err)
+				}
+				return nil
+			},
+		},
 	},
 }
