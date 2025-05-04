@@ -23,11 +23,6 @@ var runCommand = &cli.Command{
 			Name:  "ti",
 			Usage: "启用 tty 和交互模式（interactive mode），即类似 docker run -it",
 		},
-		// -v 参数：用于挂载宿主机目录到容器内部
-		&cli.StringFlag{
-			Name:  "v",
-			Usage: "挂载目录，例如: -v /host/path:/container/path",
-		},
 		// -d 参数：表示是否在后台运行容器
 		&cli.BoolFlag{
 			Name:  "d",
@@ -53,10 +48,25 @@ var runCommand = &cli.Command{
 			Name:  "name",
 			Usage: "设置容器的名称，例如: --name my_container",
 		},
+		// -v 参数：用于挂载宿主机目录到容器内部
+		&cli.StringFlag{
+			Name:  "v",
+			Usage: "挂载目录，例如: -v /host/path:/container/path",
+		},
 		// -e 参数：用于设置环境变量
 		&cli.StringSliceFlag{
 			Name:  "e",
 			Usage: "设置环境变量，例如: -e VAR=value",
+		},
+		// -net 参数：用于设置容器的网络配置
+		&cli.StringFlag{
+			Name:  "net",
+			Usage: "设置容器的网络配置，例如: --net bridge",
+		},
+		// -p 参数：用于设置端口映射
+		&cli.StringSliceFlag{
+			Name:  "p",
+			Usage: "设置端口映射，例如: -p 8080:80",
 		},
 	},
 	Action: func(ctx *cli.Context) error {
