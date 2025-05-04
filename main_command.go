@@ -255,6 +255,16 @@ var networkCommand = &cli.Command{
 		{
 			Name:  "create",
 			Usage: "创建网络",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:  "driver",
+					Usage: "网络驱动",
+				},
+				&cli.StringFlag{
+					Name:  "subnet",
+					Usage: "子网地址",
+				},
+			},
 			Action: func(ctx *cli.Context) error {
 				// 参数检查：至少需要一个网络名称参数
 				if ctx.NArg() < 1 {
