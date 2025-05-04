@@ -248,6 +248,7 @@ func DeleteNetwork(networkName string) error {
 
 // configEndpointIpAddressAndRoute 配置网络端点的 IP 地址和路由信息
 func configEndpointIpAddressAndRoute(ep *Endpoint, info *container.Info) error {
+	// 获取网络设备
 	peerLink, err := netlink.LinkByName(ep.Device.PeerName)
 	if err != nil {
 		return fmt.Errorf("获取网络设备 %s 错误: %v", ep.Device.PeerName, err)
@@ -255,6 +256,7 @@ func configEndpointIpAddressAndRoute(ep *Endpoint, info *container.Info) error {
 
 	defer enterContainerNetns(&peerLink, info)()
 
+	// 配置网络设备的 MAC 地址
 	interfaceIP := *ep.Network.IpRange
 	interfaceIP.IP = ep.IPAddress
 
@@ -288,12 +290,15 @@ func configEndpointIpAddressAndRoute(ep *Endpoint, info *container.Info) error {
 
 // enterContainerNetns 将容器的网络设备从宿主机的网络命名空间移动到容器的网络命名空间
 func enterContainerNetns(enLink *netlink.Link, info *container.Info) func() {
+	// 获取容器的网络命名空间
 	f, err := os.OpenFile(fmt.Sprintf("/proc/%s/ns/net", info.Pid), os.O_RDONLY, 0)
 	if err != nil {
 		logrus.Errorf("获取容器网络命名空间错误, %v", err)
 	}
 
+	// 获取容器的网络命名空间文件描述符
 	nsFD := f.Fd()
+	// 锁定当前线程到操作系统
 	runtime.LockOSThread()
 
 	// 修改veth peer 另外一端移到容器的namespace中
@@ -312,25 +317,32 @@ func enterContainerNetns(enLink *netlink.Link, info *container.Info) func() {
 		logrus.Errorf("设置网络命名空间错误, %v", err)
 	}
 	return func() {
+		// 恢复到原来的网络命名空间
 		netns.Set(origns)
+		// 关闭网络命名空间文件
 		origns.Close()
+		// 取消锁定当前线程到操作系统
 		runtime.UnlockOSThread()
+		// 关闭文件
 		f.Close()
 	}
 }
 
 // configPortMapping 配置容器的端口映射
 func configPortMapping(ep *Endpoint, info *container.Info) error {
+	// 遍历端口映射列表
 	for _, pm := range ep.PortMapping {
+		// 分割端口映射字符串
 		portMapping := strings.Split(pm, ":")
 		if len(portMapping) != 2 {
 			logrus.Errorf("端口映射格式错误，%v", pm)
 			continue
 		}
+		// 将端口映射添加到 iptables
 		iptablesCmd := fmt.Sprintf("-t nat -A PREROUTING -p tcp -m tcp --dport %s -j DNAT --to-destination %s:%s",
 			portMapping[0], ep.IPAddress.String(), portMapping[1])
+		// 执行 iptables 命令进行端口映射
 		cmd := exec.Command("iptables", strings.Split(iptablesCmd, " ")...)
-		//err := cmd.Run()
 		output, err := cmd.Output()
 		if err != nil {
 			logrus.Errorf("iptables 错误，%v", output)
