@@ -183,7 +183,7 @@ func setInterfaceUP(interfaceName string) error {
 func createBridgeInterface(bridgeName string) error {
 	_, err := net.InterfaceByName(bridgeName)
 	// 如果接口已经存在则返回
-	if err == nil || !strings.Contains(err.Error(), "没有这样的网络接口") {
+	if err == nil || !strings.Contains(err.Error(), "no such network interface") {
 		return err
 	}
 
