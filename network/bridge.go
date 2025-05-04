@@ -203,10 +203,20 @@ func setupIPTables(bridgeName string, subnet *net.IPNet) error {
 	// 设置NAT规则
 	iptablesCmd := fmt.Sprintf("-t nat -A POSTROUTING -s %s ! -o %s -j MASQUERADE", subnet.String(), bridgeName)
 	cmd := exec.Command("iptables", strings.Split(iptablesCmd, " ")...)
-	// err := cmd.Run()
 	output, err := cmd.Output()
 	if err != nil {
 		logrus.Errorf("iptables 输出，%v", output)
+		return err
 	}
-	return err
+
+	// 添加FORWARD规则允许转发
+	forwardCmd := fmt.Sprintf("-A FORWARD -i %s -j ACCEPT", bridgeName)
+	cmd = exec.Command("iptables", strings.Split(forwardCmd, " ")...)
+	output, err = cmd.Output()
+	if err != nil {
+		logrus.Errorf("设置FORWARD规则失败: %v, 输出: %s", err, output)
+		// 继续执行，不要因为这个错误而中断
+	}
+
+	return nil
 }

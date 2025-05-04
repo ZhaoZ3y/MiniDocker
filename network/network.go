@@ -123,6 +123,12 @@ func (nw *NetWork) remove(dumpPath string) error {
 
 // Init 初始化网络管理，加载已存在的网络
 func Init() error {
+	// 启用IP转发
+	if err := enableIpForward(); err != nil {
+		logrus.Warnf("启用IP转发失败: %v", err)
+		// 继续执行，不要因为这个错误而中断初始化过程
+	}
+
 	var bridgeDriver = BridgeNetworkDriver{} // 创建桥接网络驱动
 	drivers[bridgeDriver.Name()] = &bridgeDriver
 
@@ -285,6 +291,21 @@ func configEndpointIpAddressAndRoute(ep *Endpoint, info *container.Info) error {
 		return err
 	}
 
+	// 配置DNS - 在容器中创建/etc/resolv.conf文件
+	resolvConfPath := fmt.Sprintf("/proc/%s/root/etc/resolv.conf", info.Pid)
+
+	// 先确保目录存在
+	resolvDir := fmt.Sprintf("/proc/%s/root/etc", info.Pid)
+	if err := os.MkdirAll(resolvDir, 0755); err != nil {
+		logrus.Warnf("创建/etc目录失败: %v", err)
+	}
+
+	// 创建或覆盖resolv.conf文件
+	resolvContent := "nameserver 8.8.8.8\nnameserver 8.8.4.4\n"
+	if err := os.WriteFile(resolvConfPath, []byte(resolvContent), 0644); err != nil {
+		logrus.Warnf("写入resolv.conf失败: %v", err)
+	}
+
 	return nil
 }
 
@@ -349,5 +370,16 @@ func configPortMapping(ep *Endpoint, info *container.Info) error {
 			continue
 		}
 	}
+	return nil
+}
+
+// 启用IP转发
+func enableIpForward() error {
+	// 检查并启用IP转发
+	cmd := exec.Command("sh", "-c", "echo 1 > /proc/sys/net/ipv4/ip_forward")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("启用IP转发失败：%v, 输出：%s", err, output)
+	}
+	logrus.Info("IP转发已启用")
 	return nil
 }
