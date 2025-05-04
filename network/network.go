@@ -129,6 +129,13 @@ func Init() error {
 		// 继续执行，不要因为这个错误而中断初始化过程
 	}
 
+	// 清除可能存在的冲突iptables规则
+	cleanCmd := "iptables -F && iptables -t nat -F"
+	if _, err := execCommand(cleanCmd); err != nil {
+		logrus.Warnf("清除iptables规则失败: %v", err)
+	}
+
+	// 原有的初始化代码
 	var bridgeDriver = BridgeNetworkDriver{} // 创建桥接网络驱动
 	drivers[bridgeDriver.Name()] = &bridgeDriver
 
@@ -262,7 +269,7 @@ func configEndpointIpAddressAndRoute(ep *Endpoint, info *container.Info) error {
 
 	defer enterContainerNetns(&peerLink, info)()
 
-	// 配置网络设备的 MAC 地址
+	// 配置网络设备的 IP 地址
 	interfaceIP := *ep.Network.IpRange
 	interfaceIP.IP = ep.IPAddress
 
@@ -300,10 +307,18 @@ func configEndpointIpAddressAndRoute(ep *Endpoint, info *container.Info) error {
 		logrus.Warnf("创建/etc目录失败: %v", err)
 	}
 
+	// 使用宿主机的DNS配置
+	hostResolvConf, err := os.ReadFile("/etc/resolv.conf")
+	if err != nil {
+		logrus.Warnf("读取宿主机DNS配置失败: %v，将使用默认配置", err)
+		hostResolvConf = []byte("nameserver 8.8.8.8\nnameserver 8.8.4.4\n")
+	}
+
 	// 创建或覆盖resolv.conf文件
-	resolvContent := "nameserver 8.8.8.8\nnameserver 8.8.4.4\n"
-	if err := os.WriteFile(resolvConfPath, []byte(resolvContent), 0644); err != nil {
+	if err := os.WriteFile(resolvConfPath, hostResolvConf, 0644); err != nil {
 		logrus.Warnf("写入resolv.conf失败: %v", err)
+	} else {
+		logrus.Infof("DNS配置已写入容器: %s", resolvConfPath)
 	}
 
 	return nil
@@ -375,11 +390,42 @@ func configPortMapping(ep *Endpoint, info *container.Info) error {
 
 // 启用IP转发
 func enableIpForward() error {
-	// 检查并启用IP转发
-	cmd := exec.Command("sh", "-c", "echo 1 > /proc/sys/net/ipv4/ip_forward")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("启用IP转发失败：%v, 输出：%s", err, output)
+	// 检查IP转发是否已启用
+	content, err := os.ReadFile("/proc/sys/net/ipv4/ip_forward")
+	if err != nil {
+		return fmt.Errorf("读取ip_forward状态失败: %v", err)
 	}
-	logrus.Info("IP转发已启用")
+
+	if strings.TrimSpace(string(content)) != "1" {
+		// 启用IP转发
+		cmd := exec.Command("sh", "-c", "echo 1 > /proc/sys/net/ipv4/ip_forward")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("启用IP转发失败: %v, 输出: %s", err, output)
+		}
+		logrus.Info("IP转发已启用")
+	} else {
+		logrus.Info("IP转发已经处于启用状态")
+	}
 	return nil
+}
+
+// 封装执行shell命令的函数，方便调试
+func execCommand(command string) (string, error) {
+	logrus.Debugf("执行命令: %s", command)
+	cmd := exec.Command("sh", "-c", command)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(output), fmt.Errorf("命令执行失败: %v, 输出: %s", err, output)
+	}
+	return string(output), nil
+}
+
+// 显示当前iptables规则（用于调试）
+func showIptablesRules() {
+	if output, err := execCommand("iptables -L -n -v -t nat"); err == nil {
+		logrus.Debugf("当前NAT表规则:\n%s", output)
+	}
+	if output, err := execCommand("iptables -L -n -v"); err == nil {
+		logrus.Debugf("当前Filter表规则:\n%s", output)
+	}
 }

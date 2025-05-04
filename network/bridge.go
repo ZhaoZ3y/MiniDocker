@@ -5,7 +5,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 	"net"
-	"os/exec"
 	"strings"
 	"time"
 )
@@ -200,23 +199,37 @@ func createBridgeInterface(bridgeName string) error {
 
 // setupIPTables 设置iptables规则
 func setupIPTables(bridgeName string, subnet *net.IPNet) error {
-	// 设置NAT规则
-	iptablesCmd := fmt.Sprintf("-t nat -A POSTROUTING -s %s ! -o %s -j MASQUERADE", subnet.String(), bridgeName)
-	cmd := exec.Command("iptables", strings.Split(iptablesCmd, " ")...)
-	output, err := cmd.Output()
-	if err != nil {
-		logrus.Errorf("iptables 输出，%v", output)
-		return err
+	// 显示当前规则（调试用）
+	showIptablesRules()
+
+	// 清除可能存在的旧规则
+	cleanCmd := fmt.Sprintf("iptables -t nat -F POSTROUTING")
+	if _, err := execCommand(cleanCmd); err != nil {
+		logrus.Warnf("清除旧规则失败: %v", err)
 	}
 
-	// 添加FORWARD规则允许转发
-	forwardCmd := fmt.Sprintf("-A FORWARD -i %s -j ACCEPT", bridgeName)
-	cmd = exec.Command("iptables", strings.Split(forwardCmd, " ")...)
-	output, err = cmd.Output()
-	if err != nil {
-		logrus.Errorf("设置FORWARD规则失败: %v, 输出: %s", err, output)
-		// 继续执行，不要因为这个错误而中断
+	// 设置NAT规则 - 使用execCommand替代直接调用
+	natCmd := fmt.Sprintf("iptables -t nat -A POSTROUTING -s %s ! -o %s -j MASQUERADE",
+		subnet.String(), bridgeName)
+	if _, err := execCommand(natCmd); err != nil {
+		return fmt.Errorf("设置NAT规则失败: %v", err)
 	}
+	logrus.Infof("NAT规则已添加: %s", natCmd)
+
+	// 添加FORWARD规则允许转发
+	forwardCmd1 := fmt.Sprintf("iptables -A FORWARD -i %s -j ACCEPT", bridgeName)
+	if _, err := execCommand(forwardCmd1); err != nil {
+		logrus.Warnf("设置FORWARD规则1失败: %v", err)
+	}
+
+	// 添加反向FORWARD规则，允许相关连接返回
+	forwardCmd2 := fmt.Sprintf("iptables -A FORWARD -o %s -m state --state RELATED,ESTABLISHED -j ACCEPT", bridgeName)
+	if _, err := execCommand(forwardCmd2); err != nil {
+		logrus.Warnf("设置FORWARD规则2失败: %v", err)
+	}
+
+	// 再次显示当前规则（确认规则已添加）
+	showIptablesRules()
 
 	return nil
 }
