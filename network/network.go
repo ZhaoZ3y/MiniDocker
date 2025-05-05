@@ -129,7 +129,7 @@ func Init() error {
 	// 检查默认网络路径是否存在
 	if _, err := os.Stat(defaultNetworkPath); err != nil {
 		if os.IsNotExist(err) {
-			os.MkdirAll(defaultNetworkPath, 0644) // 创建默认网络目录
+			os.MkdirAll(defaultNetworkPath, 0755) // 创建默认网络目录
 		} else {
 			return err
 		}
