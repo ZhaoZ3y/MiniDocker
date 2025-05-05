@@ -16,7 +16,8 @@ WSL2.0、Ubuntu22.04虚拟机
 git clone https://github.com/ZhaoZ3y/MiniDocker.git
 ```
 下载项目源码后，通过如下命令拉取依赖源
-···shell
+
+```shell
 go mod tidy
 go build .
 ```
